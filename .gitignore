@@ -1,3 +1,11 @@
+# IDE files
+.vscode/
+.wake/
+
+# MDs
+IMPROVEMENT_PLAN.md
+CLAUDE.md
+
 # Compiler files
 cache/
 out/
