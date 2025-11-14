@@ -2,13 +2,13 @@
 pragma solidity ^0.8.20;
 
 import "./WithAdminManager.sol";
-import "./Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract AdminManager is IAdminManager, Ownable {
     mapping(address => bool) public isAdmin;
 
-    constructor() {
-        isAdmin[msg.sender] = true;
+    constructor(address _initialOwner, address _initialAdmin) Ownable(_initialOwner) {
+        isAdmin[_initialAdmin] = true;
     }
 
     function addAdmin(address _admin) external onlyOwner {
@@ -21,5 +21,9 @@ contract AdminManager is IAdminManager, Ownable {
 
     function isAdminAddress(address _addr) external view returns (bool) {
         return isAdmin[_addr];
+    }
+
+    function _setAdmin(address _admin, bool _status) internal {
+        isAdmin[_admin] = _status;
     }
 }

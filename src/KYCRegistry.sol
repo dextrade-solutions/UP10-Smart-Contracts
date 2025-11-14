@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "./Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
     
 contract KYCRegistry is Ownable {
     mapping(address => bool) public isVerified;
+
+    constructor(address _initialOwner) Ownable(_initialOwner) {}
 
     function verify(address user) external onlyOwner {
         isVerified[user] = true;

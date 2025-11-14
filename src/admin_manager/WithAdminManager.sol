@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "../interfaces/IAdminManager.sol";
+
+abstract contract WithAdminManager {
+    IAdminManager public adminManager;
+
+    modifier onlyAdmin() {
+        require(adminManager.isAdminAddress(msg.sender), "Not admin");
+        _;
+    }
+
+    constructor(address _adminManager) {
+        _setAdminManager(_adminManager);
+    }
+
+    function setAdminManager(
+        address _adminManager
+    ) external virtual {
+        _setAdminManager(_adminManager);
+    }
+
+    function _setAdminManager(address _adminManager) internal {
+        adminManager = IAdminManager(_adminManager);
+    }
+}

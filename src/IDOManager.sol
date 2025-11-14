@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "./IERC20.sol";
-import "./ReentrancyGuard.sol";
-import "./Ownable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "./EmergencyWithdrawAdmin.sol";
 import "./WithKYCRegistry.sol";
-import "./WithAdminManager.sol";
+import "./admin_manager/WithAdminManager.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 // interface IVoting {
 //     function projects(
@@ -232,29 +232,33 @@ contract IDOManager is ReentrancyGuard, Ownable, EmergencyWithdrawAdmin, WithKYC
         address _usdt,
         address _usdc,
         address _flx,
-        address _kyc, // address _voting,
+        address _kyc,
         address _emergencyWithdrawAdmin,
-        address _adminManager
-    ) {
+        address _adminManager,
+        address _initialOwner
+    ) Ownable(_initialOwner) WithAdminManager(_adminManager) 
+      EmergencyWithdrawAdmin(_emergencyWithdrawAdmin) WithKYCRegistry(_kyc) {
+        require(
+            _usdt != address(0) &&
+            _usdc != address(0) &&
+            _flx != address(0),
+            "Invalid token address"
+        );
         usdt = _usdt;
         usdc = _usdc;
         flx = _flx;
-        emergencyWithdrawAdmin = _emergencyWithdrawAdmin;
-        kyc = IKYCRegistry(_kyc);
-        adminManager = IAdminManager(_adminManager);
-        // voting = IVoting(_voting);
     }
 
-    function setKycRegistry(
+    function setKYCRegistry(
         address _kyc
-    ) external onlyOwner {
-        kyc = IKYCRegistry(_kyc);
+    ) external override onlyOwner {
+        _setKYCRegistry(_kyc);
     }
 
-    function setAdminManager(
+    function setAdminManager (
         address _adminManager
-    ) external onlyOwner {
-        adminManager = IAdminManager(_adminManager);
+    ) external override onlyOwner {
+        _setAdminManager(_adminManager);
     }
 
     function setClaimStartTime(
@@ -500,7 +504,7 @@ contract IDOManager is ReentrancyGuard, Ownable, EmergencyWithdrawAdmin, WithKYC
 
         require(ido.tokenAddress != address(0), 'Token is not set yet');
 
-        IERC20 token = IERC20(ido.tokenAddress);
+        ERC20 token = ERC20(ido.tokenAddress);
 
         (uint256 tokensToClaim, uint256 bonusesToClaim) = _getTokensAvailableToClaim(ido, user);
         uint256 userTokensAmountToClaim = tokensToClaim + bonusesToClaim;
@@ -676,7 +680,7 @@ contract IDOManager is ReentrancyGuard, Ownable, EmergencyWithdrawAdmin, WithKYC
         uint256 amountToRefund = (tokensToRefund * ido.initialPriceUsdt * percentToReturn) / (staticPrices[user.investedToken] * 100 * PERCENT_DECIMALS);
 
 
-        IERC20 token = IERC20(user.investedToken);
+        ERC20 token = ERC20(user.investedToken);
         uint256 investedTokenToRefund = (amountToRefund *
             10 ** token.decimals()) / DECIMALS;
 
@@ -738,7 +742,7 @@ contract IDOManager is ReentrancyGuard, Ownable, EmergencyWithdrawAdmin, WithKYC
         uint256 staticPrice = staticPrices[tokenIn];
         require(staticPrice > 0, "Static price not set");
 
-        IERC20 _tokenIn = IERC20(tokenIn);
+        ERC20 _tokenIn = ERC20(tokenIn);
 
         uint256 normalizedAmount = (amount * DECIMALS) / (10 ** _tokenIn.decimals());
         uint256 amountInUSD = (normalizedAmount * staticPrice) / PRICE_DECIMALS;
