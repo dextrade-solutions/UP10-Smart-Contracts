@@ -5,6 +5,7 @@
 # MDs
 IMPROVEMENT_PLAN.md
 CLAUDE.md
+TECHNICAL_SPECIFICATION.md
 
 # Compiler files
 cache/
@@ -20,3 +21,5 @@ docs/
 
 # Dotenv file
 .env
+
+lib/

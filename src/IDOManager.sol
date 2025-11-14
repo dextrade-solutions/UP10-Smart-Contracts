@@ -666,11 +666,13 @@ contract IDOManager is ReentrancyGuard, Ownable, EmergencyWithdrawAdmin, WithKYC
         ido.totalRefunded += tokensToRefund;
         ido.refundedBonus += bonusToSub;
 
+        // @note What is the formula below? Fix decimals calculation and readability
         uint256 refundedUsdt = tokensToRefund * ido.initialPriceUsdt * percentToReturn / (PRICE_DECIMALS * 100 * PERCENT_DECIMALS);
 
         ido.totalRefundedUSDT += refundedUsdt;
         user.refundedUsdt += refundedUsdt;
 
+        // @note Code duplication with "refundedUsdt"
         uint256 amountToRefund = (tokensToRefund * ido.initialPriceUsdt * percentToReturn) / (staticPrices[user.investedToken] * 100 * PERCENT_DECIMALS);
 
 
