@@ -259,6 +259,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
             require(fullRefund, "Only full refund allowed before listing");
         }
 
+        // TODO эта проверка повторяется в _isRefundAllowed - нужно выбрать где она должна быть
         if (fullRefund) {
             if (block.timestamp >= schedules.tgeTime + schedules.twapCalculationWindowHours * 1 hours && block.timestamp <= schedules.tgeTime + schedules.twapCalculationWindowHours * 1 hours + refundInfo.refundPolicy.fullRefundDuration) {
                 require(pricing.twapPriceUsdt > 0 && pricing.twapPriceUsdt <= pricing.fullRefundPriceUsdt, "Full refund is available only if TWAP price is less than full refund price");
@@ -281,6 +282,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
 
         uint256 penalty;
 
+        // TODO опять же какие-то проверки повторяются. Как минимум убрать дубликацию кода.
         if (block.timestamp >= schedules.tgeTime + schedules.twapCalculationWindowHours * 1 hours
             && block.timestamp <= schedules.tgeTime + schedules.twapCalculationWindowHours * 1 hours + refundInfo.refundPolicy.fullRefundDuration
             && pricing.twapPriceUsdt > 0
@@ -288,6 +290,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
         ) {
             penalty = 0;
         } else if (fullRefund) {
+            // TODO code duplication of tge time check
             penalty = schedules.tgeTime == 0 || block.timestamp < schedules.tgeTime ? refundInfo.refundPenalties.fullRefundPenaltyBeforeTge : refundInfo.refundPenalties.fullRefundPenalty;
         } else {
             penalty = refundInfo.refundPenalties.refundPenalty;
@@ -405,49 +408,23 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
 
     function _isRefundAllowed(IDOSchedules memory schedules, IDORefundInfo memory refundInfo, IDOPricing memory pricing, UserInfo memory user, bool fullRefund) internal view returns (bool) {
         // TODO мы либо ревертим, либо возвращаем false. Нужно выбрать что-то одно для консистентности
+        
+        if (!_isTGEStarted(schedules)) {
+            return _isRefundBeforeTGEAllowed(fullRefund, refundInfo);
+        }
+        if (_isTWAPWindowFinished(schedules) &&
+            !_isFullRefundWindowFinished(schedules, refundInfo.refundPolicy)) 
+        {
+            return _isTWAPUndervalued(pricing) && fullRefund;
+        }
+        if (!_isCliffFinished(schedules)) {
+            return _isCliffRefundAllowed(fullRefund, refundInfo);
+        }
+        if (_isCliffFinished(schedules)) {
+            return _isRefundInVestingAllowed(fullRefund, refundInfo);
+        }
         if (!refundInfo.refundPolicy.isRefundIfClaimedAllowed && user.claimed) {
             return false;
-        }
-
-        // TODO понять здесь && или || и поправить логику
-        if (!refundInfo.refundPolicy.isRefundInCliffAllowed && schedules.tgeTime != 0 && block.timestamp > schedules.tgeTime && block.timestamp <= schedules.tgeTime + schedules.cliffDuration) {
-            return false;
-        }
-
-        require(schedules.tgeTime == 0 || block.timestamp <= schedules.tgeTime + schedules.cliffDuration + schedules.vestingDuration + schedules.timeoutForRefundAfterVesting, "Refund after vesting is not allowed");
-
-        if (schedules.tgeTime == 0 || block.timestamp < schedules.tgeTime) {
-            if (fullRefund) {
-                require(refundInfo.refundPolicy.isFullRefundBeforeTGEAllowed, "Full refund before TGE is not allowed");
-            } else {
-                // TODO: isPartialRefundBeforeTGEAllowed doesn't exist in RefundPolicy - this may be a bug
-                // Using a placeholder for now - check the intended behavior
-                revert("Partial refund before TGE is not supported");
-            }
-        }
-
-        if (
-            !(
-                block.timestamp >= schedules.tgeTime + schedules.twapCalculationWindowHours * 1 hours &&
-                block.timestamp <= schedules.tgeTime + schedules.twapCalculationWindowHours * 1 hours + refundInfo.refundPolicy.fullRefundDuration &&
-                pricing.twapPriceUsdt > 0 && pricing.twapPriceUsdt <= pricing.fullRefundPriceUsdt
-            )
-        ) {
-            if (block.timestamp > schedules.tgeTime + schedules.cliffDuration) {
-                if (fullRefund) {
-                    require(refundInfo.refundPolicy.isFullRefundInVestingAllowed, "Full refund in vesting is not allowed");
-                } else {
-                    require(refundInfo.refundPolicy.isPartialRefundInVestingAllowed, "Partial refund in vesting is not allowed");
-                }
-            }
-
-            if (block.timestamp >= schedules.tgeTime && block.timestamp <= schedules.tgeTime + schedules.cliffDuration) {
-                if (fullRefund) {
-                    require(refundInfo.refundPolicy.isFullRefundInCliffAllowed, "Full refund in cliff is not allowed");
-                } else {
-                    require(refundInfo.refundPolicy.isPartialRefundInCliffAllowed, "Partial refund in cliff is not allowed");
-                }
-            }
         }
 
         return true;
@@ -641,5 +618,54 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
             info.refundedTokens,
             info.claimed
         );
+    }
+
+
+    function _isTGEStarted(IDOSchedules memory _idoSchedules) internal view returns (bool) {
+        uint64 tgeTime = _idoSchedules.tgeTime;
+        return tgeTime > 0 && block.timestamp >= tgeTime;
+    }
+
+    function _isCliffFinished(IDOSchedules memory _idoSchedules) internal view returns (bool) {
+        uint64 tgeTime = _idoSchedules.tgeTime;
+        return tgeTime > 0 && block.timestamp >= tgeTime + _idoSchedules.cliffDuration;
+    }
+
+    function _isTWAPWindowFinished(IDOSchedules memory _idoSchedules) internal view returns (bool) {
+        uint64 tgeTime = _idoSchedules.tgeTime;
+        return tgeTime > 0 && block.timestamp >= tgeTime + _idoSchedules.twapCalculationWindowHours * 1 hours;
+    }
+
+    function _isFullRefundWindowFinished(IDOSchedules memory _idoSchedules, RefundPolicy memory _refundPolicy) internal view returns (bool) {
+        uint64 tgeTime = _idoSchedules.tgeTime;
+        return tgeTime > 0 && block.timestamp >= tgeTime + _idoSchedules.twapCalculationWindowHours * 1 hours + _refundPolicy.fullRefundDuration;
+    }
+
+    function _isTWAPUndervalued(IDOPricing memory _idoPricing) internal pure returns (bool) {
+        return _idoPricing.twapPriceUsdt > 0 && _idoPricing.twapPriceUsdt <= _idoPricing.fullRefundPriceUsdt;
+    }
+
+    function _isRefundBeforeTGEAllowed(bool fullRefund, IDORefundInfo memory refundInfo) internal pure returns (bool) {
+        if (fullRefund) {
+            require(refundInfo.refundPolicy.isFullRefundBeforeTGEAllowed, "Full refund before TGE is not allowed");
+        } else {
+            return false;
+        }
+    }
+
+    function _isCliffRefundAllowed(bool fullRefund, IDORefundInfo memory refundInfo) internal pure returns (bool) {
+        if (fullRefund) {
+            require(refundInfo.refundPolicy.isFullRefundInVestingAllowed, "Full refund in vesting is not allowed");
+        } else {
+            require(refundInfo.refundPolicy.isPartialRefundInVestingAllowed, "Partial refund in vesting is not allowed");
+        }
+    }
+
+    function _isRefundInVestingAllowed(bool fullRefund, IDORefundInfo memory refundInfo) internal pure returns (bool) {
+        if (fullRefund) {
+            require(refundInfo.refundPolicy.isFullRefundInVestingAllowed, "Full refund in vesting is not allowed");
+        } else {
+            require(refundInfo.refundPolicy.isPartialRefundInVestingAllowed, "Partial refund in vesting is not allowed");
+        }
     }
 }
