@@ -229,74 +229,88 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
         uint256 idoId,
         address user,
         bool fullRefund
-    ) external view returns (uint256) {
-        (uint256 amount, ) = _getTokensAvailableToRefundAndReturnAmount(idoSchedules[idoId], idoRefundInfo[idoId], idoPricing[idoId], userInfo[idoId][user], fullRefund);
-        return amount;
+    ) external view returns (uint256 amount) {
+        return _getTokensAvailableToRefund(
+            idoSchedules[idoId],
+            idoRefundInfo[idoId],
+            idoPricing[idoId],
+            userInfo[idoId][user],
+            fullRefund
+        );
     }
 
-    // TODO пофиксить нейминг. Рефанды всегда либо с penalty, либо без него. Сама внешняя функция penalty не считает
     function getTokensAvailableToRefundWithPenalty(
         uint256 idoId,
         address user,
         bool fullRefund
-    ) external view returns (uint256, uint256) {
-        (uint256 amount, uint256 percentToReturn) = _getTokensAvailableToRefundAndReturnAmount(idoSchedules[idoId], idoRefundInfo[idoId], idoPricing[idoId], userInfo[idoId][user], fullRefund);
-        return (amount, percentToReturn);
+    ) external view returns (uint256 totalRefundAmount, uint256 refundPercentAfterPenalty) {
+        IDOSchedules memory schedules = idoSchedules[idoId];
+        IDORefundInfo memory refundInfo = idoRefundInfo[idoId];
+        IDOPricing memory pricing = idoPricing[idoId];
+        UserInfo memory userInfoLocal = userInfo[idoId][user];
+
+        totalRefundAmount = _getTokensAvailableToRefund(schedules, refundInfo, pricing, userInfoLocal, fullRefund);
+        refundPercentAfterPenalty = _getRefundPercentAfterPenalty(schedules, refundInfo, pricing, userInfoLocal, fullRefund);
     }
 
-    // TODO get total allocation by user USDT
-
-    function _getTokensAvailableToRefundAndReturnAmount(
+    function _getTokensAvailableToRefund(
         IDOSchedules memory schedules,
         IDORefundInfo memory refundInfo,
         IDOPricing memory pricing,
         UserInfo memory user,
         bool fullRefund
-    ) internal view returns (uint256, uint256) {
-        // TODO она должна вызывать _isRefundAllowed и не ревертить, а возвращать 0,0 если рефанд не доступен
-        // TODO убрать реверты. Ревертить должна только внешняя функция processRefund
-        if (schedules.tgeTime == 0 || block.timestamp < schedules.tgeTime) {
-            require(fullRefund, "Only full refund allowed before listing");
-        }
-
-        // TODO эта проверка повторяется в _isRefundAllowed - нужно выбрать где она должна быть
-        if (fullRefund) {
-            if (block.timestamp >= schedules.tgeTime + schedules.twapCalculationWindowHours * 1 hours && block.timestamp <= schedules.tgeTime + schedules.twapCalculationWindowHours * 1 hours + refundInfo.refundPolicy.fullRefundDuration) {
-                require(pricing.twapPriceUsdt > 0 && pricing.twapPriceUsdt <= pricing.fullRefundPriceUsdt, "Full refund is available only if TWAP price is less than full refund price");
-            }
+    ) internal view returns (uint256 tokensToRefund) {
+        if (!_isRefundAllowed(schedules, refundInfo, pricing, user, fullRefund)) {
+            return 0;
         }
 
         uint256 totalToRefund;
-        if (fullRefund) {
-            require(!refundInfo.refundPolicy.isRefundUnlockedPartOnly, "Only unlocked tokens refund is allowed");
+        if (fullRefund && !refundInfo.refundPolicy.isRefundUnlockedPartOnly) {
             totalToRefund = user.allocatedTokens - user.allocatedBonus;
         } else {
             uint256 unlockedPercent = _getUnlockedPercent(schedules);
-            require(unlockedPercent > 0, "Tokens are locked");
+            // TODO PERCENT_DECIMALS * 100 повторяется в нескольких местах, вынести в константу?
             totalToRefund = (user.allocatedTokens - user.allocatedBonus) * unlockedPercent / (PERCENT_DECIMALS * 100);
         }
 
-        if (totalToRefund == 0) {
-            return (0, 0);
+        uint tokensTaken = user.refundedTokens + user.claimedTokens;
+        return (totalToRefund > tokensTaken ? totalToRefund - tokensTaken : 0);
+    }
+
+    function _getRefundPercentAfterPenalty(
+        IDOSchedules memory schedules, 
+        IDORefundInfo memory refundInfo, 
+        IDOPricing memory pricing,
+        UserInfo memory user,
+        bool fullRefund
+    ) internal view returns (uint256 refundPercentAfterPenalty) {
+        if (!_isRefundAllowed(schedules, refundInfo, pricing, user, fullRefund)) {
+            return 0;
         }
 
         uint256 penalty;
 
-        // TODO опять же какие-то проверки повторяются. Как минимум убрать дубликацию кода.
-        if (block.timestamp >= schedules.tgeTime + schedules.twapCalculationWindowHours * 1 hours
-            && block.timestamp <= schedules.tgeTime + schedules.twapCalculationWindowHours * 1 hours + refundInfo.refundPolicy.fullRefundDuration
-            && pricing.twapPriceUsdt > 0
-            && pricing.twapPriceUsdt <= pricing.fullRefundPriceUsdt
+        if (_isTWAPWindowFinished(schedules)
+            && !_isFullRefundWindowFinished(schedules, refundInfo.refundPolicy)
+            && _isTWAPUndervalued(pricing)
         ) {
             penalty = 0;
         } else if (fullRefund) {
-            // TODO code duplication of tge time check
-            penalty = schedules.tgeTime == 0 || block.timestamp < schedules.tgeTime ? refundInfo.refundPenalties.fullRefundPenaltyBeforeTge : refundInfo.refundPenalties.fullRefundPenalty;
+            penalty = schedules.tgeTime == 0 || !_isTGEStarted(schedules) ? 
+                refundInfo.refundPenalties.fullRefundPenaltyBeforeTge : 
+                refundInfo.refundPenalties.fullRefundPenalty;
         } else {
             penalty = refundInfo.refundPenalties.refundPenalty;
         }
 
-        return (totalToRefund > user.refundedTokens + user.claimedTokens ? totalToRefund - user.refundedTokens - user.claimedTokens : 0, 100 * PERCENT_DECIMALS - penalty);
+        return 100 * PERCENT_DECIMALS - penalty;
+    }
+
+    function _calculateRefundPenalty(
+        uint256 amount,
+        uint256 penaltyPercent
+    ) internal pure returns (uint256) {
+        return (amount * penaltyPercent) / (100 * PERCENT_DECIMALS);
     }
 
     function claimTokens(uint256 idoId) external nonReentrant {
@@ -363,6 +377,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
         return _getUnlockedPercent(idoSchedules[idoId]);
     }
 
+    // TODO go through this
     function _getUnlockedPercent(
         IDOSchedules memory schedules
     ) internal view returns (uint256) {
@@ -402,12 +417,16 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
     }
 
     function isRefundAvailable(uint256 idoId, bool fullRefund) external view returns (bool) {
-        // TODO чтобы эта функция имела смысл, нельзя ревертить в _isRefundAllowed, а нужно всегда возвращать true/false
         return _isRefundAllowed(idoSchedules[idoId], idoRefundInfo[idoId], idoPricing[idoId], userInfo[idoId][msg.sender], fullRefund);
     }
 
-    function _isRefundAllowed(IDOSchedules memory schedules, IDORefundInfo memory refundInfo, IDOPricing memory pricing, UserInfo memory user, bool fullRefund) internal view returns (bool) {
-        // TODO мы либо ревертим, либо возвращаем false. Нужно выбрать что-то одно для консистентности
+    function _isRefundAllowed(
+        IDOSchedules memory schedules, 
+        IDORefundInfo memory refundInfo, 
+        IDOPricing memory pricing, 
+        UserInfo memory user, 
+        bool fullRefund
+    ) internal view returns (bool) {
         
         if (!_isTGEStarted(schedules)) {
             return _isRefundBeforeTGEAllowed(fullRefund, refundInfo);
@@ -432,13 +451,21 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
 
     function processRefund(uint256 idoId, bool fullRefund) external nonReentrant {
         IDOSchedules memory schedules = idoSchedules[idoId];
-        IDORefundInfo storage refundInfo = idoRefundInfo[idoId];
+        IDORefundInfo memory refundInfo = idoRefundInfo[idoId];
         IDOPricing memory pricing = idoPricing[idoId];
-        UserInfo storage user = userInfo[idoId][msg.sender];
+        UserInfo memory user = userInfo[idoId][msg.sender];
+        UserInfo storage userStorage = userInfo[idoId][msg.sender];
 
         require(_isRefundAllowed(schedules, refundInfo, pricing, user, fullRefund), "Refund is not available right now");
 
-        (uint256 tokensToRefund, uint256 percentToReturn) = _getTokensAvailableToRefundAndReturnAmount(
+        uint256 tokensToRefund = _getTokensAvailableToRefund(
+            schedules,
+            refundInfo,
+            pricing,
+            user,
+            fullRefund
+        );
+        uint256 percentToReturn = _getRefundPercentAfterPenalty(
             schedules,
             refundInfo,
             pricing,
@@ -447,48 +474,45 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
         );
 
         require(tokensToRefund > 0, "Nothing to refund");
-        require(tokensToRefund + user.refundedTokens + user.refundedBonus + user.claimedTokens <= user.allocatedTokens, "Refund exceeds allocated tokens");
 
         uint256 bonusToSub;
-
         bonusToSub = user.allocatedBonus - user.refundedBonus - user.claimedBonus;
 
-        user.refundedBonus += bonusToSub;
+        // TODO refundedBonus разве не бесполезная переменная вообще? Она не исчисляет РЕАЛЬНЫЕ выведенные токены, потому что бонус не рефандится
+        userStorage.refundedBonus += bonusToSub;
+        userStorage.refundedTokens += tokensToRefund;
 
-        user.refundedTokens += tokensToRefund;
+        idoRefundInfo[idoId].totalRefunded += tokensToRefund;
+        // TODO здесь точно так же
+        idoRefundInfo[idoId].refundedBonus += bonusToSub;
 
-        refundInfo.totalRefunded += tokensToRefund;
-        refundInfo.refundedBonus += bonusToSub;
-
-        // @note What is the formula below? Fix decimals calculation and readability
         uint256 refundedUsdt = tokensToRefund * pricing.initialPriceUsdt * percentToReturn / (PRICE_DECIMALS * 100 * PERCENT_DECIMALS);
 
-        refundInfo.totalRefundedUSDT += refundedUsdt;
-        user.refundedUsdt += refundedUsdt;
+        idoRefundInfo[idoId].totalRefundedUSDT += refundedUsdt;
+        userStorage.refundedUsdt += refundedUsdt;
 
-        // @note Code duplication with "refundedUsdt"
-        uint256 amountToRefund = (tokensToRefund * pricing.initialPriceUsdt * percentToReturn) / (staticPrices[user.investedToken] * 100 * PERCENT_DECIMALS);
+        // TODO Code duplication with "refundedUsdt"
+        uint256 investedTokensToRefund = (tokensToRefund * pricing.initialPriceUsdt * percentToReturn) / (staticPrices[user.investedToken] * 100 * PERCENT_DECIMALS);
 
 
         ERC20 token = ERC20(user.investedToken);
-        uint256 investedTokenToRefund = (amountToRefund *
+        uint256 investedTokensToRefundScaled = (investedTokensToRefund *
             10 ** token.decimals()) / DECIMALS;
 
         require(
-            user.investedTokenAmountRefunded + investedTokenToRefund <=
+            user.investedTokenAmountRefunded + investedTokensToRefundScaled <=
                 user.investedTokenAmount,
             "Refund exceeds invested amount"
         );
 
-        user.investedTokenAmountRefunded += investedTokenToRefund;
-        // ido.totalRaisedUSDT -= amountToRefund * staticPrices[user.investedToken] / PRICE_DECIMALS;
+        userStorage.investedTokenAmountRefunded += investedTokensToRefundScaled;
 
         require(
-            token.transfer(msg.sender, investedTokenToRefund),
+            token.transfer(msg.sender, investedTokensToRefundScaled),
             "Token transfer failed"
         );
 
-        emit Refund(idoId, msg.sender, tokensToRefund, amountToRefund);
+        emit Refund(idoId, msg.sender, tokensToRefund, investedTokensToRefundScaled);
     }
 
     function invest(
@@ -647,7 +671,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
 
     function _isRefundBeforeTGEAllowed(bool fullRefund, IDORefundInfo memory refundInfo) internal pure returns (bool) {
         if (fullRefund) {
-            require(refundInfo.refundPolicy.isFullRefundBeforeTGEAllowed, "Full refund before TGE is not allowed");
+            return refundInfo.refundPolicy.isFullRefundBeforeTGEAllowed;
         } else {
             return false;
         }
@@ -655,17 +679,17 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
 
     function _isCliffRefundAllowed(bool fullRefund, IDORefundInfo memory refundInfo) internal pure returns (bool) {
         if (fullRefund) {
-            require(refundInfo.refundPolicy.isFullRefundInVestingAllowed, "Full refund in vesting is not allowed");
+            return refundInfo.refundPolicy.isFullRefundInVestingAllowed;
         } else {
-            require(refundInfo.refundPolicy.isPartialRefundInVestingAllowed, "Partial refund in vesting is not allowed");
+            return refundInfo.refundPolicy.isPartialRefundInVestingAllowed;
         }
     }
 
     function _isRefundInVestingAllowed(bool fullRefund, IDORefundInfo memory refundInfo) internal pure returns (bool) {
         if (fullRefund) {
-            require(refundInfo.refundPolicy.isFullRefundInVestingAllowed, "Full refund in vesting is not allowed");
+            return refundInfo.refundPolicy.isFullRefundInVestingAllowed;
         } else {
-            require(refundInfo.refundPolicy.isPartialRefundInVestingAllowed, "Partial refund in vesting is not allowed");
+            return refundInfo.refundPolicy.isPartialRefundInVestingAllowed;
         }
     }
 }
