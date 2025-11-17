@@ -8,8 +8,10 @@ import "./kyc/WithKYCRegistry.sol";
 import "./admin_manager/WithAdminManager.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "./interfaces/IIDOManager.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 
 contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawAdmin, WithKYCRegistry, WithAdminManager {
+    using Math for uint256;
 
     uint256 public idoCount;
 
@@ -24,7 +26,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
     address public immutable flx;
 
     uint256 private constant DECIMALS = 1e18;
-    uint32 private constant PERCENT_DECIMALS = 100000;
+    uint32 private constant HUNDRED_PERCENT = 10_000_000;
     uint256 private constant PRICE_DECIMALS = 1e8;
 
     uint8 private constant PHASE_DIVIDER = 3;
@@ -209,8 +211,8 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
         uint256 unlockedPercent = _getUnlockedPercent(schedules);
         require(unlockedPercent > 0, "Tokens are locked");
 
-        uint256 unlockedWithoutBonus = (user.allocatedTokens - user.allocatedBonus) * unlockedPercent / (PERCENT_DECIMALS * 100);
-        uint256 unlockedBonus = user.allocatedBonus * unlockedPercent / (PERCENT_DECIMALS * 100);
+        uint256 unlockedWithoutBonus = (user.allocatedTokens - user.allocatedBonus).mulDiv(unlockedPercent, HUNDRED_PERCENT);
+        uint256 unlockedBonus = user.allocatedBonus.mulDiv(unlockedPercent, HUNDRED_PERCENT);
 
         uint256 claimedTokensWOBonus = user.claimedTokens - user.claimedBonus;
 
@@ -264,8 +266,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
             totalToRefund = user.allocatedTokens - user.allocatedBonus;
         } else {
             uint256 unlockedPercent = _getUnlockedPercent(schedules);
-            // TODO PERCENT_DECIMALS * 100 повторяется в нескольких местах, вынести в константу?
-            totalToRefund = (user.allocatedTokens - user.allocatedBonus) * unlockedPercent / (PERCENT_DECIMALS * 100);
+            totalToRefund = (user.allocatedTokens - user.allocatedBonus).mulDiv(unlockedPercent, HUNDRED_PERCENT);
         }
 
         uint tokensTaken = user.refundedTokens + user.claimedTokens;
@@ -298,16 +299,10 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
             penalty = refundInfo.refundPenalties.refundPenalty;
         }
 
-        return 100 * PERCENT_DECIMALS - penalty;
+        return HUNDRED_PERCENT - penalty;
     }
 
-    function _calculateRefundPenalty(
-        uint256 amount,
-        uint256 penaltyPercent
-    ) internal pure returns (uint256) {
-        return (amount * penaltyPercent) / (100 * PERCENT_DECIMALS);
-    }
-
+    // TODO review and fix
     function claimTokens(uint256 idoId) external nonReentrant {
         IDO memory ido = idos[idoId];
         IDOSchedules memory schedules = idoSchedules[idoId];
@@ -327,8 +322,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
         require(userTokensAmountToClaim > 0, "Nothing to claim");
         require(userTokensAmountToClaim + user.refundedTokens + user.refundedBonus + user.claimedTokens <= user.allocatedTokens, "Claim exceeds allocated tokens");
 
-        uint256 totalTokensInTokensDecimals = (userTokensAmountToClaim *
-            (10 ** token.decimals())) / DECIMALS;
+        uint256 totalTokensInTokensDecimals = userTokensAmountToClaim.mulDiv(10 ** token.decimals(), DECIMALS);
 
         user.claimed = true;
         user.claimedTokens += userTokensAmountToClaim;
@@ -387,16 +381,17 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
         uint256 vestingEndTime = schedules.tgeTime + schedules.cliffDuration + schedules.vestingDuration;
 
         if (block.timestamp > vestingEndTime) {
-            return 100 * PERCENT_DECIMALS;
+            return HUNDRED_PERCENT;
         }
 
         uint256 vestingTime = block.timestamp - schedules.tgeTime - schedules.cliffDuration;
         uint256 intervalsCompleted = vestingTime / schedules.unlockInterval;
         uint256 totalIntervals = _getNumberOfVestingIntervals(schedules);
-    
-        uint256 vestingPercent = (intervalsCompleted *
-            (100 * PERCENT_DECIMALS - schedules.tgeUnlockPercent)) /
-            totalIntervals;
+
+        uint256 vestingPercent = intervalsCompleted.mulDiv(
+            HUNDRED_PERCENT - schedules.tgeUnlockPercent,
+            totalIntervals
+        );
 
         return schedules.tgeUnlockPercent + vestingPercent;
     }
@@ -483,17 +478,15 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
         // TODO здесь точно так же
         idoRefundInfo[idoId].refundedBonus += bonusToSub;
 
-        uint256 refundedUsdt = tokensToRefund * pricing.initialPriceUsdt * percentToReturn / (PRICE_DECIMALS * 100 * PERCENT_DECIMALS);
+        uint256 refundedUsdt = _convertToUSDT(tokensToRefund, pricing.initialPriceUsdt).mulDiv(percentToReturn, HUNDRED_PERCENT);
 
         idoRefundInfo[idoId].totalRefundedUSDT += refundedUsdt;
         userStorage.refundedUsdt += refundedUsdt;
 
-        // TODO Code duplication with "refundedUsdt"
-        uint256 investedTokensToRefund = (tokensToRefund * pricing.initialPriceUsdt * percentToReturn) / (staticPrices[user.investedToken] * 100 * PERCENT_DECIMALS);
+        uint256 investedTokensToRefund = _convertFromUSDT(refundedUsdt, staticPrices[user.investedToken]);
         ERC20 token = ERC20(user.investedToken);
-        uint256 investedTokensToRefundScaled = (investedTokensToRefund *
-            10 ** token.decimals()) / DECIMALS;
-
+        uint256 investedTokensToRefundScaled = investedTokensToRefund.mulDiv(10 ** token.decimals(), DECIMALS);
+        
         require(
             user.investedTokenAmountRefunded + investedTokensToRefundScaled <=
                 user.investedTokenAmount,
@@ -510,7 +503,6 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
         emit Refund(idoId, msg.sender, tokensToRefund, investedTokensToRefundScaled);
     }
 
-    // TODO review and fix
     function invest(
         uint256 idoId,
         uint256 amount,
@@ -531,36 +523,21 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
             ido.info.totalAllocated < ido.info.totalAllocation && block.timestamp <= schedules.idoEndTime,
             "IDO is ended"
         );
-
         require(
             block.timestamp >= schedules.idoStartTime,
             "IDO is not started yet"
         );
-
         require(pricing.initialPriceUsdt > 0, "Initial price not set");
-
         require(user.investedToken == address(0), "You already invested");
 
-        unchecked {
-            ido.totalParticipants ++;
-        }
-
-        // if (block.timestamp <= schedules.idoStartTime + FLX_PRIORITY_PERIOD) {
-        //     require(
-        //         IERC20(flx).balanceOf(msg.sender) > 0,
-        //         "FLX required in first 2h"
-        //     );
-        // }
+        ido.totalParticipants ++;
 
         uint256 staticPrice = staticPrices[tokenIn];
         require(staticPrice > 0, "Static price not set");
 
         ERC20 _tokenIn = ERC20(tokenIn);
-
-        // ? normalized to 18 decimals
-        uint256 normalizedAmount = (amount * DECIMALS) / (10 ** _tokenIn.decimals());
-        // ? invested tokens converted to USDT
-        uint256 amountInUSD = (normalizedAmount * staticPrice) / PRICE_DECIMALS;
+        uint256 normalizedAmount = amount.mulDiv(DECIMALS, 10 ** _tokenIn.decimals());
+        uint256 amountInUSD = _convertToUSDT(normalizedAmount, staticPrice);
 
         require(amountInUSD >= ido.info.minAllocation, "Amount must be greater than min allocation");
 
@@ -568,23 +545,15 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
 
         user.investedUsdt += amountInUSD;
         user.investedTokenAmount += amount;
-        unchecked {
-            user.investedTime = uint64(block.timestamp);
-        }
+        user.investedTime = uint64(block.timestamp);
         user.investedPhase = phaseNow;
         user.investedToken = tokenIn;
 
-        uint256 bonusesMultiplier = bonusPercent + 100 * PERCENT_DECIMALS;
+        uint256 bonusesMultiplier = bonusPercent + HUNDRED_PERCENT;
+        uint256 tokensBought = _convertFromUSDT(amountInUSD, pricing.initialPriceUsdt)
+            .mulDiv(bonusesMultiplier, HUNDRED_PERCENT);
+        uint256 tokensBonus = tokensBought - _convertFromUSDT(amountInUSD, pricing.initialPriceUsdt);
 
-        uint256 tokensBought = (amountInUSD *
-            PRICE_DECIMALS *
-            bonusesMultiplier) /
-            pricing.initialPriceUsdt /
-            (PERCENT_DECIMALS * 100);
-
-        uint256 tokensBonus = tokensBought - (amountInUSD * PRICE_DECIMALS) / pricing.initialPriceUsdt;
-
-// allocations
         require(
             tokensBought + user.allocatedTokens - user.refundedTokens - user.refundedBonus <= ido.info.totalAllocationByUser,
             "Exceeds max allocation per user"
@@ -593,7 +562,6 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
             tokensBought + ido.info.totalAllocated - refundInfo.totalRefunded - refundInfo.refundedBonus <= ido.info.totalAllocation,
             "Exceeds total allocation"
         );
-// allocations
 
         user.allocatedTokens += tokensBought;
         user.allocatedBonus += tokensBonus;
@@ -606,6 +574,22 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
         );
 
         emit Investment(idoId, msg.sender, amountInUSD, tokenIn, normalizedAmount, tokensBought, tokensBonus);
+    }
+
+    function _convertToUSDT(
+        uint256 amount,
+        uint256 priceOfToken
+    ) internal pure returns (uint256 amountInUSDT) {
+        require(priceOfToken > 0, "Price must be greater than zero");
+        amountInUSDT = amount.mulDiv(priceOfToken, PRICE_DECIMALS);
+    }
+
+    function _convertFromUSDT(
+        uint256 amountUSDT,
+        uint256 priceOfToken
+    ) internal pure returns (uint256 amountInToken) {
+        require(priceOfToken > 0, "Price must be greater than zero");
+        amountInToken = amountUSDT.mulDiv(PRICE_DECIMALS, priceOfToken);
     }
 
     function _getUserAvailableTokens(UserInfo memory user) internal pure returns (uint256) {
