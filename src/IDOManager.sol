@@ -220,11 +220,6 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
         );
     }
 
-    function _getDiscountedPrice(uint256 price, uint256 discount) internal pure returns (uint256) {
-        uint256 discountAmount = (price * discount) / (PERCENT_DECIMALS * 100);
-        return price - discountAmount;
-    }
-
     function getTokensAvailableToRefund(
         uint256 idoId,
         address user,
@@ -377,15 +372,15 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
         return _getUnlockedPercent(idoSchedules[idoId]);
     }
 
-    // TODO go through this
+    // * Percentage of tokens that are unlocked now, including TGE and vesting
     function _getUnlockedPercent(
         IDOSchedules memory schedules
     ) internal view returns (uint256) {
-        if (schedules.tgeTime == 0 || block.timestamp < schedules.tgeTime) {
+        if (schedules.tgeTime == 0 || !_isTGEStarted(schedules)) {
             return 0;
         }
 
-        if (block.timestamp <= schedules.tgeTime + schedules.cliffDuration) {
+        if (!_isCliffFinished(schedules)) {
             return schedules.tgeUnlockPercent;
         }
 
@@ -396,24 +391,26 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
         }
 
         uint256 vestingTime = block.timestamp - schedules.tgeTime - schedules.cliffDuration;
-
-        // uint256 vestingPercent = (vestingTime *
-        //     (100 * PERCENT_DECIMALS - schedules.tgeUnlockPercent)) /
-        //     schedules.vestingDuration;
-
-
         uint256 intervalsCompleted = vestingTime / schedules.unlockInterval;
+        uint256 totalIntervals = _getNumberOfVestingIntervals(schedules);
+    
+        uint256 vestingPercent = (intervalsCompleted *
+            (100 * PERCENT_DECIMALS - schedules.tgeUnlockPercent)) /
+            totalIntervals;
+
+        return schedules.tgeUnlockPercent + vestingPercent;
+    }
+
+    function _getNumberOfVestingIntervals(
+        IDOSchedules memory schedules
+    ) internal pure returns (uint256) {
         uint256 totalIntervals = schedules.vestingDuration / schedules.unlockInterval;
 
         if (schedules.vestingDuration % schedules.unlockInterval != 0) {
             totalIntervals += 1;
         }
 
-        uint256 vestingPercent = (intervalsCompleted *
-            (100 * PERCENT_DECIMALS - schedules.tgeUnlockPercent)) /
-            totalIntervals;
-
-        return schedules.tgeUnlockPercent + vestingPercent;
+        return totalIntervals;
     }
 
     function isRefundAvailable(uint256 idoId, bool fullRefund) external view returns (bool) {
@@ -493,8 +490,6 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
 
         // TODO Code duplication with "refundedUsdt"
         uint256 investedTokensToRefund = (tokensToRefund * pricing.initialPriceUsdt * percentToReturn) / (staticPrices[user.investedToken] * 100 * PERCENT_DECIMALS);
-
-
         ERC20 token = ERC20(user.investedToken);
         uint256 investedTokensToRefundScaled = (investedTokensToRefund *
             10 ** token.decimals()) / DECIMALS;
@@ -515,6 +510,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
         emit Refund(idoId, msg.sender, tokensToRefund, investedTokensToRefundScaled);
     }
 
+    // TODO review and fix
     function invest(
         uint256 idoId,
         uint256 amount,
@@ -577,10 +573,6 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
         }
         user.investedPhase = phaseNow;
         user.investedToken = tokenIn;
-
-        // uint256 salePrice = _getDiscountedPrice(pricing.initialPriceUsdt, _getPhaseBonus(ido));
-
-        // uint256 tokensBought = (amountInUSD * PRICE_DECIMALS) / salePrice;
 
         uint256 bonusesMultiplier = bonusPercent + 100 * PERCENT_DECIMALS;
 
