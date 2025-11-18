@@ -21,6 +21,10 @@ contract EmergencyWithdrawAdmin {
         _setEmergencyWithdrawAdmin(newAdmin);
     }
 
+    // TODO make only available to withdraw stables after users claim
+    // TODO for vested tokens admin can only withdraw (1) Excess tokens that are not sold, including refunded ones 
+    // TODO and (2) Tokens that are taken as refund penalty
+
     function emergencyWithdraw(address _token, uint256 _amount) external onlyEmergencyWithdrawAdmin {
         require(_amount > 0, "Invalid amount");
 
