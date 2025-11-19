@@ -3,14 +3,14 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./EmergencyWithdrawAdmin.sol";
+import "./ReservesManager.sol";
 import "./kyc/WithKYCRegistry.sol";
 import "./admin_manager/WithAdminManager.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "./interfaces/IIDOManager.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawAdmin, WithKYCRegistry, WithAdminManager {
+contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, WithKYCRegistry, WithAdminManager {
     using Math for uint256;
 
     uint256 public idoCount;
@@ -39,11 +39,11 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, EmergencyWithdrawA
         address _usdc,
         address _flx,
         address _kyc,
-        address _emergencyWithdrawAdmin,
+        address _reservesAdmin,
         address _adminManager,
         address _initialOwner
     ) Ownable(_initialOwner) WithAdminManager(_adminManager) 
-      EmergencyWithdrawAdmin(_emergencyWithdrawAdmin) WithKYCRegistry(_kyc) {
+      ReservesManager(_reservesAdmin) WithKYCRegistry(_kyc) {
         require(
             _usdt != address(0) &&
             _usdc != address(0) &&
