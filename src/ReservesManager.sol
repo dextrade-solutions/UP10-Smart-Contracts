@@ -2,10 +2,12 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 abstract contract ReservesManager {
     using Math for uint256;
+    using SafeERC20 for IERC20;
 
     address public reservesAdmin;
 
@@ -145,10 +147,7 @@ abstract contract ReservesManager {
 
         adminWithdrawnInToken[idoId][token] += amount;
 
-        require(
-            IERC20(token).transfer(msg.sender, amount),
-            "Transfer failed"
-        );
+        IERC20(token).safeTransfer(msg.sender, amount);
 
         emit AdminWithdrawal(idoId, token, amount);
     }

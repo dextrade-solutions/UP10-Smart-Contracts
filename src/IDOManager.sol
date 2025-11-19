@@ -7,11 +7,13 @@ import "./ReservesManager.sol";
 import "./kyc/WithKYCRegistry.sol";
 import "./admin_manager/WithAdminManager.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IIDOManager.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, WithKYCRegistry, WithAdminManager {
     using Math for uint256;
+    using SafeERC20 for IERC20;
 
     uint256 public idoCount;
 
@@ -187,10 +189,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         ido.info.totalAllocated += tokensBought;
         ido.totalRaisedUSDT += amountInUSD;
 
-        require(
-            _tokenIn.transferFrom(msg.sender, address(this), amount),
-            "Transfer failed"
-        );
+        IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amount);
 
         // Track stablecoin raised for this IDO
         totalRaisedInToken[idoId][tokenIn] += amount;
@@ -225,10 +224,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         // Track total claimed tokens for this IDO
         totalClaimedTokens[idoId] += userTokensAmountToClaim;
 
-        require(
-            token.transfer(msg.sender, totalTokensInTokensDecimals),
-            "Token transfer failed"
-        );
+        IERC20(address(token)).safeTransfer(msg.sender, totalTokensInTokensDecimals);
 
         emit TokensClaimed(idoId, msg.sender, userTokensAmountToClaim);
     }
@@ -288,10 +284,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         // Track stablecoin refunded for this IDO
         totalRefundedInToken[idoId][user.investedToken] += investedTokensToRefundScaled;
 
-        require(
-            token.transfer(msg.sender, investedTokensToRefundScaled),
-            "Token transfer failed"
-        );
+        IERC20(address(token)).safeTransfer(msg.sender, investedTokensToRefundScaled);
 
         emit Refund(idoId, msg.sender, tokensToRefund, investedTokensToRefundScaled);
     }
