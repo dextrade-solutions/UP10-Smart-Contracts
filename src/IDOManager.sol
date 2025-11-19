@@ -21,9 +21,12 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
     mapping(uint256 idoId => IDOPricing) public idoPricing;
     mapping(uint256 => mapping(address => UserInfo)) public userInfo;
 
-    address public immutable usdt;
-    address public immutable usdc;
-    address public immutable flx;
+    // Reserves tracking - stablecoins deposited per IDO per token
+    mapping(uint256 => mapping(address => uint256)) public totalRaisedInToken;
+    // Reserves tracking - stablecoins refunded per IDO per token
+    mapping(uint256 => mapping(address => uint256)) public totalRefundedInToken;
+    // Reserves tracking - total tokens claimed by users per IDO
+    mapping(uint256 => uint256) public totalClaimedTokens;
 
     uint256 private constant DECIMALS = 1e18;
     uint32 private constant HUNDRED_PERCENT = 10_000_000;
@@ -42,17 +45,8 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         address _reservesAdmin,
         address _adminManager,
         address _initialOwner
-    ) Ownable(_initialOwner) WithAdminManager(_adminManager) 
-      ReservesManager(_reservesAdmin) WithKYCRegistry(_kyc) {
-        require(
-            _usdt != address(0) &&
-            _usdc != address(0) &&
-            _flx != address(0),
-            "Invalid token address"
-        );
-        usdt = _usdt;
-        usdc = _usdc;
-        flx = _flx;
+    ) Ownable(_initialOwner) WithAdminManager(_adminManager)
+      ReservesManager(_reservesAdmin, _usdt, _usdc, _flx) WithKYCRegistry(_kyc) {
     }
 
     function createIDO(IDOInput calldata idoInput) external onlyAdmin returns (uint256) {
@@ -134,7 +128,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         address tokenIn
     ) external nonReentrant onlyKYC {
         require(
-            tokenIn == usdt || tokenIn == usdc || tokenIn == flx,
+            tokenIn == USDT || tokenIn == USDC || tokenIn == FLX,
             "Invalid token"
         );
 
@@ -198,6 +192,9 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
             "Transfer failed"
         );
 
+        // Track stablecoin raised for this IDO
+        totalRaisedInToken[idoId][tokenIn] += amount;
+
         emit Investment(idoId, msg.sender, amountInUSD, tokenIn, normalizedAmount, tokensBought, tokensBonus);
     }
 
@@ -224,6 +221,9 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         user.claimed = true;
         user.claimedTokens += userTokensAmountToClaim;
         user.claimedBonus += bonusesToClaim;
+
+        // Track total claimed tokens for this IDO
+        totalClaimedTokens[idoId] += userTokensAmountToClaim;
 
         require(
             token.transfer(msg.sender, totalTokensInTokensDecimals),
@@ -285,12 +285,37 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
 
         userStorage.investedTokenAmountRefunded += investedTokensToRefundScaled;
 
+        // Track stablecoin refunded for this IDO
+        totalRefundedInToken[idoId][user.investedToken] += investedTokensToRefundScaled;
+
         require(
             token.transfer(msg.sender, investedTokensToRefundScaled),
             "Token transfer failed"
         );
 
         emit Refund(idoId, msg.sender, tokensToRefund, investedTokensToRefundScaled);
+    }
+
+    /**
+     * @notice Implementation of abstract function - thin wrapper with no logic
+     * @dev Reads storage and calls internal functions
+     */
+    function adminWithdraw(
+        uint256 idoId,
+        address token,
+        uint256 amount
+    ) external override onlyReservesAdmin {
+
+        _adminWithdraw(
+            idoId, 
+            token, 
+            amount, 
+            totalRaisedInToken[idoId][token],
+            totalRefundedInToken[idoId][token],
+            totalClaimedTokens[idoId],
+            idos[idoId].info.totalAllocated,
+            idoRefundInfo[idoId].totalRefunded + idoRefundInfo[idoId].refundedBonus
+        );
     }
 
     /*
@@ -358,6 +383,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         emit TwapSet(idoId, twapPriceUsdt);
     }
 
+
     /*
         VIEW FUNCTIONS
         ________________________________________________________________
@@ -401,6 +427,25 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
 
         totalRefundAmount = _getTokensAvailableToRefund(schedules, refundInfo, pricing, userInfoLocal, fullRefund);
         refundPercentAfterPenalty = _getRefundPercentAfterPenalty(schedules, refundInfo, pricing, userInfoLocal, fullRefund);
+    }
+
+    /**
+     * @notice Implementation of abstract function - thin wrapper with no logic
+     * @dev Reads storage and passes to internal _getWithdrawableAmount
+     */
+    function getWithdrawableAmount(
+        uint256 idoId,
+        address token
+    ) external view override returns (uint256) {
+        return _getWithdrawableAmount(
+            idoId,
+            token,
+            totalRaisedInToken[idoId][token],
+            totalRefundedInToken[idoId][token],
+            totalClaimedTokens[idoId],
+            idos[idoId].info.totalAllocated,
+            idoRefundInfo[idoId].totalRefunded + idoRefundInfo[idoId].refundedBonus
+        );
     }
 
     function currentPhase(uint256 idoId) external view returns (Phase) {
