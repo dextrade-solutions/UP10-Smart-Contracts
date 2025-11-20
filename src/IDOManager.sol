@@ -739,9 +739,9 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
 
     function _isCliffRefundAllowed(bool fullRefund, IDORefundInfo memory refundInfo) internal pure returns (bool) {
         if (fullRefund) {
-            return refundInfo.refundPolicy.isFullRefundInVestingAllowed;
+            return refundInfo.refundPolicy.isFullRefundInCliffAllowed;
         } else {
-            return refundInfo.refundPolicy.isPartialRefundInVestingAllowed;
+            return refundInfo.refundPolicy.isPartialRefundInCliffAllowed;
         }
     }
 

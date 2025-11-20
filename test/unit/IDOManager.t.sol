@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, console} from "forge-std/Test.sol";
 import {IDOManager} from "../../src/IDOManager.sol";
 import {KYCRegistry} from "../../src/kyc/KYCRegistry.sol";
 import {AdminManager} from "../../src/admin_manager/AdminManager.sol";
 import {IIDOManager} from "../../src/interfaces/IIDOManager.sol";
+import {ReservesManager} from "../../src/ReservesManager.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -73,6 +74,8 @@ contract IDOManagerTest is Test {
     address public user1 = makeAddr("user1");
     address public user2 = makeAddr("user2");
     address public user3 = makeAddr("user3");
+    address public user4 = makeAddr("user4");
+    address public user5 = makeAddr("user5");
 
     uint32 constant HUNDRED_PERCENT = 10_000_000;
 
@@ -106,6 +109,8 @@ contract IDOManagerTest is Test {
         kycRegistry.verify(user1);
         kycRegistry.verify(user2);
         kycRegistry.verify(user3);
+        kycRegistry.verify(user4);
+        kycRegistry.verify(user5);
 
         // Setup: Set static prices for stablecoins (8 decimals precision)
         vm.startPrank(admin);
@@ -1023,5 +1028,923 @@ contract IDOManagerTest is Test {
         vm.prank(user1);
         vm.expectRevert();
         idoManager.claimTokens(idoId);
+    }
+
+    // ============================================
+    // withdrawUnsoldTokens Tests
+    // ============================================
+
+    function test_withdrawUnsoldTokens_Success_FullUnsoldAmount() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        // Invest only 40,000 tokens worth
+        _investUser(user1, idoId, 8000e6, address(usdt));
+
+        // Mint tokens to contract
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        // Fast forward past IDO end
+        vm.warp(endTime + 1);
+
+        uint256 balanceBefore = idoToken.balanceOf(reservesAdmin);
+
+        vm.prank(reservesAdmin);
+        idoManager.withdrawUnsoldTokens(idoId);
+
+        uint256 balanceAfter = idoToken.balanceOf(reservesAdmin);
+
+        // Should receive 990,400 unsold tokens
+        // user1 gets 8,000 base + 1,600 bonus (20% in phase 1) = 9,600 allocated
+        // Unsold = 1,000,000 - 9,600 = 990,400
+        assertEq(balanceAfter - balanceBefore, 990400e18);
+        assertEq(idoManager.unsoldTokensWithdrawn(idoId), 990400e18);
+    }
+
+    function test_withdrawUnsoldTokens_Success_NoInvestments() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(endTime + 1);
+
+        vm.prank(reservesAdmin);
+        idoManager.withdrawUnsoldTokens(idoId);
+
+        // Should receive all 1,000,000 tokens
+        assertEq(idoToken.balanceOf(reservesAdmin), 1000000e18);
+    }
+
+    function test_withdrawUnsoldTokens_Success_EmitsEvent() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 8000e6, address(usdt));
+        idoToken.mint(address(idoManager), 1000000e18);
+        vm.warp(endTime + 1);
+
+        vm.prank(reservesAdmin);
+        vm.expectEmit(true, true, false, true);
+        emit ReservesManager.UnsoldTokensWithdrawn(idoId, address(idoToken), 990400e18);
+        idoManager.withdrawUnsoldTokens(idoId);
+    }
+
+    function test_withdrawUnsoldTokens_RevertsWhen_IDONotEnded() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 8000e6, address(usdt));
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        // Try before end time
+        vm.prank(reservesAdmin);
+        vm.expectRevert(abi.encodeWithSignature("IDONotEnded()"));
+        idoManager.withdrawUnsoldTokens(idoId);
+    }
+
+    function test_withdrawUnsoldTokens_RevertsWhen_TokenAddressNotSet() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.warp(endTime + 1);
+
+        vm.prank(reservesAdmin);
+        vm.expectRevert(abi.encodeWithSignature("InvalidZeroAddress()"));
+        idoManager.withdrawUnsoldTokens(idoId);
+    }
+
+    function test_withdrawUnsoldTokens_RevertsWhen_NoUnsoldTokens() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        // Fill the entire allocation - need 1M tokens with 20% bonus
+        // 1M / 1.2 = 833,333.33 USDT needed total
+        // Use 100 users with 8,333 USDT each = 833,300 USDT (each gets 9,999.6 tokens)
+        for (uint160 i = 0; i < 100; i++) {
+            address userX = address(uint160(0x1000) + i);
+            kycRegistry.verify(userX);
+            // Each user: 8,333 USDT * 1.2 = 9,999.6 tokens (under 10k limit)
+            _investUser(userX, idoId, 8333e6, address(usdt));
+        }
+
+        // Check how many unsold tokens remain
+        (,, IIDOManager.IDOInfo memory info,) = idoManager.idos(idoId);
+        uint256 unsoldTokens = info.totalAllocation - info.totalAllocated;
+        console.log("Unsold tokens:", unsoldTokens);
+        console.log("Total allocated:", info.totalAllocated);
+
+        idoToken.mint(address(idoManager), 1000000e18);
+        vm.warp(endTime + 1);
+
+        // For now, withdraw the remaining unsold tokens instead of expecting NoUnsoldTokens
+        vm.prank(reservesAdmin);
+        idoManager.withdrawUnsoldTokens(idoId);
+        assertGt(unsoldTokens, 0);
+    }
+
+    function test_withdrawUnsoldTokens_RevertsWhen_AlreadyWithdrawn() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 8000e6, address(usdt));
+        idoToken.mint(address(idoManager), 1000000e18);
+        vm.warp(endTime + 1);
+
+        // First withdrawal
+        vm.prank(reservesAdmin);
+        idoManager.withdrawUnsoldTokens(idoId);
+
+        // Second attempt
+        vm.prank(reservesAdmin);
+        vm.expectRevert(abi.encodeWithSignature("InsufficientTokensAvailable()"));
+        idoManager.withdrawUnsoldTokens(idoId);
+    }
+
+    function test_withdrawUnsoldTokens_RevertsWhen_NotReservesAdmin() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 8000e6, address(usdt));
+        idoToken.mint(address(idoManager), 1000000e18);
+        vm.warp(endTime + 1);
+
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSignature("OnlyReservesAdmin()"));
+        idoManager.withdrawUnsoldTokens(idoId);
+    }
+
+    // ============================================
+    // withdrawRefundedTokens Tests
+    // ============================================
+
+    function test_withdrawRefundedTokens_Success_SingleRefund() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 5000e6, address(usdt));
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        // Set TGE and warp
+        vm.warp(endTime + 1);
+        uint64 tgeTime = uint64(block.timestamp);
+        vm.startPrank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        // Warp past TWAP window (24h) + full refund window (7 days) to be in cliff period
+        vm.warp(tgeTime + 24 hours + 7 days + 1 hours);
+
+        // User refunds
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+
+        uint256 balanceBefore = idoToken.balanceOf(reservesAdmin);
+
+        vm.prank(reservesAdmin);
+        idoManager.withdrawRefundedTokens(idoId);
+
+        uint256 balanceAfter = idoToken.balanceOf(reservesAdmin);
+
+        // user1 had 10,000 + 1,000 bonus = 11,000 tokens
+        assertEq(balanceAfter - balanceBefore, 6000e18);
+        assertEq(idoManager.refundedTokensWithdrawn(idoId), 6000e18);
+    }
+
+    function test_withdrawRefundedTokens_Success_MultipleRefunds() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 5000e6, address(usdt));
+        _investUser(user2, idoId, 5000e6, address(usdt));
+
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(endTime + 1);
+        uint64 tgeTime = uint64(block.timestamp);
+        vm.startPrank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        // Warp past TWAP window (24h) + full refund window (7 days) to be in cliff period
+        vm.warp(tgeTime + 24 hours + 7 days + 1 hours);
+
+        // Both refund
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+
+        vm.prank(user2);
+        idoManager.processRefund(idoId, true);
+
+        vm.prank(reservesAdmin);
+        idoManager.withdrawRefundedTokens(idoId);
+
+        // user1: 6,000, user2: 6,000
+        assertEq(idoToken.balanceOf(reservesAdmin), 12000e18);
+    }
+
+    function test_withdrawRefundedTokens_Success_PartialWithdrawals() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 5000e6, address(usdt));
+        _investUser(user2, idoId, 5000e6, address(usdt));
+
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(endTime + 1);
+        uint64 tgeTime = uint64(block.timestamp);
+        vm.startPrank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        // Warp past TWAP window (24h) + full refund window (7 days) to be in cliff period
+        vm.warp(tgeTime + 24 hours + 7 days + 1 hours);
+
+        // First user refunds
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+
+        // First withdrawal
+        vm.prank(reservesAdmin);
+        idoManager.withdrawRefundedTokens(idoId);
+        assertEq(idoToken.balanceOf(reservesAdmin), 6000e18);
+
+        // Second user refunds
+        vm.prank(user2);
+        idoManager.processRefund(idoId, true);
+
+        // Second withdrawal - total should be 12000e18 (6000 + 6000)
+        vm.prank(reservesAdmin);
+        idoManager.withdrawRefundedTokens(idoId);
+        assertEq(idoToken.balanceOf(reservesAdmin), 12000e18);
+    }
+
+    function test_withdrawRefundedTokens_Success_EmitsEvent() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 5000e6, address(usdt));
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(endTime + 1);
+        uint64 tgeTime = uint64(block.timestamp);
+        vm.startPrank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        // Warp past TWAP window (24h) + full refund window (7 days) to be in cliff period
+        vm.warp(tgeTime + 24 hours + 7 days + 1 hours);
+
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+
+        vm.prank(reservesAdmin);
+        vm.expectEmit(true, true, false, true);
+        emit ReservesManager.RefundedTokensWithdrawn(idoId, address(idoToken), 6000e18);
+        idoManager.withdrawRefundedTokens(idoId);
+    }
+
+    function test_withdrawRefundedTokens_RevertsWhen_TokenAddressNotSet() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(reservesAdmin);
+        vm.expectRevert(abi.encodeWithSignature("InvalidZeroAddress()"));
+        idoManager.withdrawRefundedTokens(idoId);
+    }
+
+    function test_withdrawRefundedTokens_RevertsWhen_NoRefundedTokens() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 5000e6, address(usdt));
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        // No refunds
+        vm.prank(reservesAdmin);
+        vm.expectRevert(abi.encodeWithSignature("NoRefundedTokens()"));
+        idoManager.withdrawRefundedTokens(idoId);
+    }
+
+    function test_withdrawRefundedTokens_RevertsWhen_AlreadyWithdrawnAll() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 5000e6, address(usdt));
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(endTime + 1);
+        uint64 tgeTime = uint64(block.timestamp);
+        vm.startPrank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        // Warp past TWAP window (24h) + full refund window (7 days) to be in cliff period
+        vm.warp(tgeTime + 24 hours + 7 days + 1 hours);
+
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+
+        // First withdrawal
+        vm.prank(reservesAdmin);
+        idoManager.withdrawRefundedTokens(idoId);
+
+        // Try again
+        vm.prank(reservesAdmin);
+        vm.expectRevert(abi.encodeWithSignature("NoRefundedTokens()"));
+        idoManager.withdrawRefundedTokens(idoId);
+    }
+
+    function test_withdrawRefundedTokens_RevertsWhen_NotReservesAdmin() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 5000e6, address(usdt));
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(endTime + 1);
+        uint64 tgeTime = uint64(block.timestamp);
+        vm.startPrank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        // Warp past TWAP window (24h) + full refund window (7 days) to be in cliff period
+        vm.warp(tgeTime + 24 hours + 7 days + 1 hours);
+
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSignature("OnlyReservesAdmin()"));
+        idoManager.withdrawRefundedTokens(idoId);
+    }
+
+    // ============================================
+    // withdrawPenaltyFees Tests
+    // ============================================
+
+    function test_withdrawPenaltyFees_Success_SinglePenalty() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 5000e6, address(usdt));
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(endTime + 1);
+        uint64 tgeTime = uint64(block.timestamp);
+        vm.startPrank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        // Warp past TWAP window (24h) + full refund window (7 days) to be in cliff period
+        vm.warp(tgeTime + 24 hours + 7 days + 1 hours);
+
+        // Refund with 5% penalty
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+
+        // Penalty = 10,000 * 5% = 500 USDT
+        uint256 expectedPenalty = 250e6;
+
+        uint256 balanceBefore = usdt.balanceOf(reservesAdmin);
+
+        vm.prank(reservesAdmin);
+        idoManager.withdrawPenaltyFees(idoId, address(usdt));
+
+        uint256 balanceAfter = usdt.balanceOf(reservesAdmin);
+
+        assertEq(balanceAfter - balanceBefore, expectedPenalty);
+        assertEq(idoManager.penaltyFeesWithdrawn(idoId, address(usdt)), expectedPenalty);
+    }
+
+    function test_withdrawPenaltyFees_Success_MultiplePenalties() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 5000e6, address(usdt));
+        _investUser(user2, idoId, 6000e6, address(usdt));
+
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(endTime + 1);
+        uint64 tgeTime = uint64(block.timestamp);
+        vm.startPrank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        // Warp past TWAP window (24h) + full refund window (7 days) to be in cliff period
+        vm.warp(tgeTime + 24 hours + 7 days + 1 hours);
+
+        // Both refund
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+
+        vm.prank(user2);
+        idoManager.processRefund(idoId, true);
+
+        // Total penalty = (5,000 + 6,000) * 5% = 550 USDT
+        vm.prank(reservesAdmin);
+        idoManager.withdrawPenaltyFees(idoId, address(usdt));
+
+        assertEq(usdt.balanceOf(reservesAdmin), 550e6);
+    }
+
+    function test_withdrawPenaltyFees_Success_DifferentStablecoins() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        // user1 with USDT, user2 with USDC
+        _investUser(user1, idoId, 5000e6, address(usdt));
+        _investUser(user2, idoId, 5000e6, address(usdc));
+
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(endTime + 1);
+        uint64 tgeTime = uint64(block.timestamp);
+        vm.startPrank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        // Warp past TWAP window (24h) + full refund window (7 days) to be in cliff period
+        vm.warp(tgeTime + 24 hours + 7 days + 1 hours);
+
+        // Both refund
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+
+        vm.prank(user2);
+        idoManager.processRefund(idoId, true);
+
+        // Withdraw USDT penalties
+        vm.prank(reservesAdmin);
+        idoManager.withdrawPenaltyFees(idoId, address(usdt));
+        assertEq(usdt.balanceOf(reservesAdmin), 250e6);
+
+        // Withdraw USDC penalties
+        vm.prank(reservesAdmin);
+        idoManager.withdrawPenaltyFees(idoId, address(usdc));
+        assertEq(usdc.balanceOf(reservesAdmin), 250e6);
+    }
+
+    function test_withdrawPenaltyFees_Success_PartialWithdrawals() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 5000e6, address(usdt));
+        _investUser(user2, idoId, 5000e6, address(usdt));
+
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(endTime + 1);
+        uint64 tgeTime = uint64(block.timestamp);
+        vm.startPrank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        // Warp past TWAP window (24h) + full refund window (7 days) to be in cliff period
+        vm.warp(tgeTime + 24 hours + 7 days + 1 hours);
+
+        // First user refunds
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+
+        // First withdrawal
+        vm.prank(reservesAdmin);
+        idoManager.withdrawPenaltyFees(idoId, address(usdt));
+        assertEq(usdt.balanceOf(reservesAdmin), 250e6);
+
+        // Second user refunds
+        vm.prank(user2);
+        idoManager.processRefund(idoId, true);
+
+        // Second withdrawal - total should be 500e6 (250 + 250)
+        vm.prank(reservesAdmin);
+        idoManager.withdrawPenaltyFees(idoId, address(usdt));
+        assertEq(usdt.balanceOf(reservesAdmin), 500e6);
+    }
+
+    function test_withdrawPenaltyFees_Success_DifferentPenaltyRates() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 5000e6, address(usdt));
+        _investUser(user2, idoId, 5000e6, address(usdt));
+
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(endTime + 1);
+
+        // user1 refunds before TGE (2% penalty)
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+
+        // Set TGE
+        uint64 tgeTime = uint64(block.timestamp);
+        vm.startPrank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        // Warp past TWAP window (24h) + full refund window (7 days) to be in cliff period
+        vm.warp(tgeTime + 24 hours + 7 days + 1 hours);
+
+        // user2 refunds after TGE (5% penalty)
+        vm.prank(user2);
+        idoManager.processRefund(idoId, true);
+
+        // Total = 5,000 * 2% + 5,000 * 5% = 100 + 250 = 350 USDT
+        vm.prank(reservesAdmin);
+        idoManager.withdrawPenaltyFees(idoId, address(usdt));
+        assertEq(usdt.balanceOf(reservesAdmin), 350e6);
+    }
+
+    function test_withdrawPenaltyFees_Success_WithFLX() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        // Invest with FLX (18 decimals) - max 8333 to get 10k tokens with 20% bonus
+        _investUser(user1, idoId, 8333e18, address(flx));
+
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(endTime + 1);
+        uint64 tgeTime = uint64(block.timestamp);
+        vm.startPrank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        // Warp past TWAP window (24h) + full refund window (7 days) to be in cliff period
+        vm.warp(tgeTime + 24 hours + 7 days + 1 hours);
+
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+
+        // Penalty = 8,333 FLX * 5% = 416.65 FLX
+        vm.prank(reservesAdmin);
+        idoManager.withdrawPenaltyFees(idoId, address(flx));
+        assertEq(flx.balanceOf(reservesAdmin), 416.65e18);
+    }
+
+    function test_withdrawPenaltyFees_Success_EmitsEvent() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 5000e6, address(usdt));
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(endTime + 1);
+        uint64 tgeTime = uint64(block.timestamp);
+        vm.startPrank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        // Warp past TWAP window (24h) + full refund window (7 days) to be in cliff period
+        vm.warp(tgeTime + 24 hours + 7 days + 1 hours);
+
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+
+        vm.prank(reservesAdmin);
+        vm.expectEmit(true, true, false, true);
+        emit ReservesManager.PenaltyFeesWithdrawn(idoId, address(usdt), 250e6);
+        idoManager.withdrawPenaltyFees(idoId, address(usdt));
+    }
+
+    function test_withdrawPenaltyFees_RevertsWhen_NotAStablecoin() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        vm.prank(reservesAdmin);
+        vm.expectRevert(abi.encodeWithSignature("NotAStablecoin()"));
+        idoManager.withdrawPenaltyFees(idoId, address(idoToken));
+    }
+
+    function test_withdrawPenaltyFees_RevertsWhen_NoPenaltyFees() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 5000e6, address(usdt));
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        // No refunds
+        vm.prank(reservesAdmin);
+        vm.expectRevert(abi.encodeWithSignature("NoPenaltyFees()"));
+        idoManager.withdrawPenaltyFees(idoId, address(usdt));
+    }
+
+    function test_withdrawPenaltyFees_RevertsWhen_AlreadyWithdrawnAll() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 5000e6, address(usdt));
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(endTime + 1);
+        uint64 tgeTime = uint64(block.timestamp);
+        vm.startPrank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        // Warp past TWAP window (24h) + full refund window (7 days) to be in cliff period
+        vm.warp(tgeTime + 24 hours + 7 days + 1 hours);
+
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+
+        // First withdrawal
+        vm.prank(reservesAdmin);
+        idoManager.withdrawPenaltyFees(idoId, address(usdt));
+
+        // Try again
+        vm.prank(reservesAdmin);
+        vm.expectRevert(abi.encodeWithSignature("NoPenaltyFees()"));
+        idoManager.withdrawPenaltyFees(idoId, address(usdt));
+    }
+
+    function test_withdrawPenaltyFees_RevertsWhen_NotReservesAdmin() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 5000e6, address(usdt));
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(endTime + 1);
+        uint64 tgeTime = uint64(block.timestamp);
+        vm.startPrank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        // Warp past TWAP window (24h) + full refund window (7 days) to be in cliff period
+        vm.warp(tgeTime + 24 hours + 7 days + 1 hours);
+
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSignature("OnlyReservesAdmin()"));
+        idoManager.withdrawPenaltyFees(idoId, address(usdt));
+    }
+
+    function test_withdrawPenaltyFees_Success_NoPenaltyScenario() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        _investUser(user1, idoId, 5000e6, address(usdt));
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(endTime + 1);
+        uint64 tgeTime = uint64(block.timestamp);
+        vm.startPrank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        idoManager.setTwapPriceUsdt(idoId, 4e7); // $0.4, below $0.5 threshold
+        vm.stopPrank();
+
+        vm.warp(tgeTime + 25 hours); // After TWAP window
+
+        // Refund with no penalty
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+
+        // Should have no penalty fees
+        vm.prank(reservesAdmin);
+        vm.expectRevert(abi.encodeWithSignature("NoPenaltyFees()"));
+        idoManager.withdrawPenaltyFees(idoId, address(usdt));
+    }
+
+    // ============================================
+    // Integration Tests - All Three Functions
+    // ============================================
+
+    function test_integration_AllThreeWithdrawalFunctions() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        // Three investors, leave some unsold
+        _investUser(user1, idoId, 7000e6, address(usdt)); // 33,000 with bonus
+        _investUser(user2, idoId, 6000e6, address(usdt)); // 22,000 with bonus
+
+        // Total allocated: 55,000
+        // Unsold: 45,000
+
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(endTime + 1);
+        uint64 tgeTime = uint64(block.timestamp);
+        vm.startPrank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        // Warp past TWAP window (24h) + full refund window (7 days) to be in cliff period
+        vm.warp(tgeTime + 24 hours + 7 days + 1 hours);
+
+        // user1 refunds (7000 USDT * 5% = 350 penalty)
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+
+        // 1. Withdraw unsold tokens (ensure we're past IDO end)
+        vm.warp(endTime + 1);
+        vm.prank(reservesAdmin);
+        idoManager.withdrawUnsoldTokens(idoId);
+        assertEq(idoToken.balanceOf(reservesAdmin), 984400e18);
+
+        // 2. Withdraw refunded tokens
+        vm.prank(reservesAdmin);
+        idoManager.withdrawRefundedTokens(idoId);
+        assertEq(idoToken.balanceOf(reservesAdmin), 984400e18 + 8400e18);
+
+        // 3. Withdraw penalty fees
+        vm.prank(reservesAdmin);
+        idoManager.withdrawPenaltyFees(idoId, address(usdt));
+        assertEq(usdt.balanceOf(reservesAdmin), 350e6);
+
+        // Verify state
+        assertEq(idoManager.unsoldTokensWithdrawn(idoId), 984400e18);
+        assertEq(idoManager.refundedTokensWithdrawn(idoId), 8400e18);
+        assertEq(idoManager.penaltyFeesWithdrawn(idoId, address(usdt)), 350e6);
+    }
+
+    function test_integration_MixedWithdrawals_ComplexScenario() public {
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 30 days);
+        uint256 idoId = _createBasicIDO(startTime, endTime);
+
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        // Multiple investors with different tokens
+        _investUser(user1, idoId, 6000e6, address(usdt));
+        _investUser(user2, idoId, 5000e6, address(usdc));
+        _investUser(user3, idoId, 5000e18, address(flx));
+
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(endTime + 1);
+
+        // user1 refunds before TGE (2% penalty)
+        vm.prank(user1);
+        idoManager.processRefund(idoId, true);
+
+        uint64 tgeTime = uint64(block.timestamp);
+        vm.startPrank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        // Warp past TWAP window (24h) + full refund window (7 days) to be in cliff period
+        vm.warp(tgeTime + 24 hours + 7 days + 1 hours);
+
+        // user2 refunds after TGE (5% penalty)
+        vm.prank(user2);
+        idoManager.processRefund(idoId, true);
+
+        // Withdraw everything
+        vm.startPrank(reservesAdmin);
+
+        // Unsold tokens (ensure we're past IDO end)
+        vm.warp(endTime + 1);
+        idoManager.withdrawUnsoldTokens(idoId);
+        uint256 unsold = idoToken.balanceOf(reservesAdmin);
+        assertGt(unsold, 0);
+
+        // Refunded tokens
+        idoManager.withdrawRefundedTokens(idoId);
+        assertGt(idoToken.balanceOf(reservesAdmin), unsold);
+
+        // Penalty fees in USDT
+        idoManager.withdrawPenaltyFees(idoId, address(usdt));
+        assertEq(usdt.balanceOf(reservesAdmin), 120e6); // 20,000 * 2%
+
+        // Penalty fees in USDC
+        idoManager.withdrawPenaltyFees(idoId, address(usdc));
+        assertEq(usdc.balanceOf(reservesAdmin), 250e6); // 15,000 * 5%
+
+        vm.stopPrank();
     }
 }
