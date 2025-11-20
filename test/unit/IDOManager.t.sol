@@ -509,7 +509,7 @@ contract IDOManagerTest is Test {
         _mintAndApprove(user1, address(usdt), investAmount);
 
         vm.expectEmit(true, true, false, false);
-        emit IIDOManager.Investment(idoId, user1, 1000e18, address(usdt), 1000e18, 1200e18, 200e18);
+        emit IIDOManager.Investment(idoId, user1, 1000e18, address(usdt), 1200e18, 200e18);
 
         vm.prank(user1);
         idoManager.invest(idoId, investAmount, address(usdt));

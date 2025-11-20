@@ -136,42 +136,32 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         IDOSchedules memory schedules = idoSchedules[idoId];
         IDORefundInfo memory refundInfo = idoRefundInfo[idoId];
         IDOPricing memory pricing = idoPricing[idoId];
-        UserInfo storage user = userInfo[idoId][msg.sender];
+        UserInfo memory user = userInfo[idoId][msg.sender];
 
-        require(ido.info.totalAllocated < ido.info.totalAllocation && block.timestamp <= schedules.idoEndTime, IDOEnded());
-        require(block.timestamp >= schedules.idoStartTime, IDONotStarted());
-        require(pricing.initialPriceUsdt > 0, InvalidPrice());
-        require(user.investedToken == address(0), AlreadyInvested());
+        _validateInvestmentState(ido, schedules, user, pricing);
 
-        ido.totalParticipants ++;
-
-        uint256 staticPrice = staticPrices[tokenIn];
-        require(staticPrice > 0, StaticPriceNotSet());
-
-        ERC20 _tokenIn = ERC20(tokenIn);
-        uint256 normalizedAmount = amount.mulDiv(DECIMALS, 10 ** _tokenIn.decimals());
-        uint256 amountInUSD = _convertToUSDT(normalizedAmount, staticPrice);
+        uint256 amountInUSD = _calculateAmountInUSD(tokenIn, amount);
 
         require(amountInUSD >= ido.info.minAllocation, BelowMinAllocation());
 
         (uint256 bonusPercent, Phase phaseNow) = _getPhaseBonus(ido);
 
-        user.investedUsdt += amountInUSD;
-        user.investedTokenAmount += amount;
-        user.investedTime = uint64(block.timestamp);
-        user.investedPhase = phaseNow;
-        user.investedToken = tokenIn;
-
-        uint256 bonusesMultiplier = bonusPercent + HUNDRED_PERCENT;
-        uint256 tokensBought = _convertFromUSDT(amountInUSD, pricing.initialPriceUsdt)
-            .mulDiv(bonusesMultiplier, HUNDRED_PERCENT);
+        uint256 tokensBought = _calculateTokensBought(amountInUSD, bonusPercent, pricing.initialPriceUsdt);
         uint256 tokensBonus = tokensBought - _convertFromUSDT(amountInUSD, pricing.initialPriceUsdt);
 
-        require(tokensBought + user.allocatedTokens - user.refundedTokens - user.refundedBonus <= ido.info.totalAllocationByUser, ExceedsUserAllocation());
-        require(tokensBought + ido.info.totalAllocated - refundInfo.totalRefunded - refundInfo.refundedBonus <= ido.info.totalAllocation, ExceedsTotalAllocation());
+        _checkAllocationLimits(tokensBought, ido, user, refundInfo);        
 
-        user.allocatedTokens += tokensBought;
-        user.allocatedBonus += tokensBonus;
+        _saveUserInvestment(
+            idoId,
+            amount,
+            amountInUSD,
+            tokenIn,
+            tokensBought,
+            tokensBonus,
+            phaseNow
+        );
+        
+        ido.totalParticipants ++;
         ido.info.totalAllocated += tokensBought;
         ido.totalRaisedUSDT += amountInUSD;
 
@@ -180,7 +170,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         // Track stablecoin raised for this IDO
         totalRaisedInToken[idoId][tokenIn] += amount;
 
-        emit Investment(idoId, msg.sender, amountInUSD, tokenIn, normalizedAmount, tokensBought, tokensBonus);
+        emit Investment(idoId, msg.sender, amountInUSD, tokenIn, tokensBought, tokensBonus);
     }
 
     function claimTokens(uint256 idoId) external nonReentrant {
@@ -218,7 +208,6 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         IDORefundInfo memory refundInfo = idoRefundInfo[idoId];
         IDOPricing memory pricing = idoPricing[idoId];
         UserInfo memory user = userInfo[idoId][msg.sender];
-        UserInfo storage userStorage = userInfo[idoId][msg.sender];
 
         require(_isRefundAllowed(schedules, refundInfo, pricing, user, fullRefund), RefundNotAvailable());
 
@@ -229,6 +218,9 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
             user,
             fullRefund
         );
+
+        require(tokensToRefund > 0, NothingToRefund());
+
         uint256 percentToReturn = _getRefundPercentAfterPenalty(
             schedules,
             refundInfo,
@@ -237,45 +229,17 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
             fullRefund
         );
 
-        require(tokensToRefund > 0, NothingToRefund());
+        uint256 investedTokensToRefundScaled = _updateRefundStateAndCalculateRefundAmount(
+            idoId,
+            tokensToRefund,
+            percentToReturn,
+            _calculateBonusAmount(user),
+            pricing.initialPriceUsdt
+        );
 
-        uint256 bonusToSub;
-        bonusToSub = user.allocatedBonus - user.refundedBonus - user.claimedBonus;
+        IERC20(user.investedToken).safeTransfer(msg.sender, investedTokensToRefundScaled);
 
-        userStorage.refundedBonus += bonusToSub;
-        userStorage.refundedTokens += tokensToRefund;
-
-        idoRefundInfo[idoId].totalRefunded += tokensToRefund;
-        idoRefundInfo[idoId].refundedBonus += bonusToSub;
-
-        uint256 fullRefundUsdt = _convertToUSDT(tokensToRefund, pricing.initialPriceUsdt);
-        uint256 refundedUsdt = fullRefundUsdt.mulDiv(percentToReturn, HUNDRED_PERCENT);
-
-        idoRefundInfo[idoId].totalRefundedUSDT += refundedUsdt;
-        userStorage.refundedUsdt += refundedUsdt;
-
-        uint256 investedTokensToRefund = _convertFromUSDT(refundedUsdt, staticPrices[user.investedToken]);
-        ERC20 token = ERC20(user.investedToken);
-        uint256 investedTokensToRefundScaled = investedTokensToRefund.mulDiv(10 ** token.decimals(), DECIMALS);
-
-        require(user.investedTokenAmountRefunded + investedTokensToRefundScaled <= user.investedTokenAmount, RefundExceedsInvested());
-
-        userStorage.investedTokenAmountRefunded += investedTokensToRefundScaled;
-
-        // Track stablecoin refunded for this IDO
-        totalRefundedInToken[idoId][user.investedToken] += investedTokensToRefundScaled;
-
-        // Track penalty fees collected (difference between full refund and actual refund)
-        if (percentToReturn < HUNDRED_PERCENT) {
-            uint256 penaltyUsdt = fullRefundUsdt - refundedUsdt;
-            uint256 penaltyInInvestedToken = _convertFromUSDT(penaltyUsdt, staticPrices[user.investedToken]);
-            uint256 penaltyScaled = penaltyInInvestedToken.mulDiv(10 ** token.decimals(), DECIMALS);
-            penaltyFeesCollected[idoId][user.investedToken] += penaltyScaled;
-        }
-
-        IERC20(address(token)).safeTransfer(msg.sender, investedTokensToRefundScaled);
-
-        emit Refund(idoId, msg.sender, tokensToRefund, investedTokensToRefundScaled);
+        emit Refund(idoId, msg.sender, tokensToRefund, investedTokensToRefundScaled);        
     }
 
     /**
@@ -596,6 +560,128 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         }
 
         return HUNDRED_PERCENT - penalty;
+    }
+
+    function _calculateAmountInUSD(
+        address tokenIn,
+        uint256 amount
+    ) internal view returns (uint256 amountInUSD) {
+        uint256 staticPrice = staticPrices[tokenIn];
+
+        require(staticPrice > 0, StaticPriceNotSet());
+
+        ERC20 _tokenIn = ERC20(tokenIn);
+        uint256 normalizedAmount = amount.mulDiv(DECIMALS, 10 ** _tokenIn.decimals());
+        return _convertToUSDT(normalizedAmount, staticPrice);
+    }
+
+    function _calculateTokensBought(
+        uint256 amountInUSD,
+        uint256 bonusPercent,
+        uint256 initialPriceUsdt
+    ) internal pure returns (uint256 tokensBought) {
+        uint256 bonusesMultiplier = bonusPercent + HUNDRED_PERCENT;
+        return _convertFromUSDT(amountInUSD, initialPriceUsdt)
+            .mulDiv(bonusesMultiplier, HUNDRED_PERCENT);
+    }
+
+    function _saveUserInvestment(
+        uint256 idoId,
+        uint256 amount,
+        uint256 amountInUSD,
+        address tokenIn,
+        uint256 tokensBought,
+        uint256 tokensBonus,
+        Phase phaseNow
+    ) internal {
+        UserInfo storage user = userInfo[idoId][msg.sender];
+
+        user.investedUsdt += amountInUSD;
+        user.investedTokenAmount += amount;
+        user.investedTime = uint64(block.timestamp);
+        user.investedPhase = phaseNow;
+        user.investedToken = tokenIn;
+        user.allocatedTokens += tokensBought;
+        user.allocatedBonus += tokensBonus;
+    }
+
+    function _validateInvestmentState(
+        IDO memory ido,
+        IDOSchedules memory schedules,
+        UserInfo memory user,
+        IDOPricing memory pricing
+    ) internal view {
+        require(ido.info.totalAllocated < ido.info.totalAllocation && block.timestamp <= schedules.idoEndTime, IDOEnded());
+        require(block.timestamp >= schedules.idoStartTime, IDONotStarted());
+        require(pricing.initialPriceUsdt > 0, InvalidPrice());
+        require(user.investedToken == address(0), AlreadyInvested());
+    }
+
+    function _checkAllocationLimits(
+        uint256 tokensBought,
+        IDO memory ido,
+        UserInfo memory user,
+        IDORefundInfo memory refundInfo
+    ) internal pure {
+        require(tokensBought + user.allocatedTokens - user.refundedTokens - user.refundedBonus <= ido.info.totalAllocationByUser, ExceedsUserAllocation());
+        require(tokensBought + ido.info.totalAllocated - refundInfo.totalRefunded - refundInfo.refundedBonus <= ido.info.totalAllocation, ExceedsTotalAllocation());
+    }
+
+    function _recordRefundPenalties(
+        uint256 idoId,
+        address token,
+        uint256 fullRefundUsdt,
+        uint256 refundedUsdt,
+        address investedToken
+    ) internal {
+        uint256 penaltyUsdt = fullRefundUsdt - refundedUsdt;
+        uint256 penaltyInInvestedToken = _convertFromUSDT(penaltyUsdt, staticPrices[investedToken]);
+        uint256 penaltyScaled = penaltyInInvestedToken.mulDiv(10 ** ERC20(token).decimals(), DECIMALS);
+        penaltyFeesCollected[idoId][investedToken] += penaltyScaled;
+    }
+
+    function _calculateBonusAmount(UserInfo memory user) internal pure returns (uint256) {
+        uint256 bonusToSub = user.allocatedBonus - user.refundedBonus - user.claimedBonus;
+        return bonusToSub;
+    }
+
+    function _updateRefundStateAndCalculateRefundAmount(
+        uint256 idoId,
+        uint256 tokensToRefund,
+        uint256 percentToReturn,
+        uint256 bonusToSub,
+        uint256 initialPriceUsdt
+    ) internal returns (uint256 investedTokensToRefundScaled) {
+        UserInfo storage userStorage = userInfo[idoId][msg.sender];
+        UserInfo memory user = userInfo[idoId][msg.sender];
+
+        userStorage.refundedBonus += bonusToSub;
+        userStorage.refundedTokens += tokensToRefund;
+
+        idoRefundInfo[idoId].totalRefunded += tokensToRefund;
+        idoRefundInfo[idoId].refundedBonus += bonusToSub;
+
+        uint256 fullRefundUsdt = _convertToUSDT(tokensToRefund, initialPriceUsdt);
+        uint256 refundedUsdt = fullRefundUsdt.mulDiv(percentToReturn, HUNDRED_PERCENT);
+
+        idoRefundInfo[idoId].totalRefundedUSDT += refundedUsdt;
+        userStorage.refundedUsdt += refundedUsdt;
+
+        uint256 investedTokensToRefund = _convertFromUSDT(refundedUsdt, staticPrices[user.investedToken]);
+        ERC20 token = ERC20(user.investedToken);
+        investedTokensToRefundScaled = investedTokensToRefund.mulDiv(10 ** token.decimals(), DECIMALS);
+
+        require(user.investedTokenAmountRefunded + investedTokensToRefundScaled <= user.investedTokenAmount, RefundExceedsInvested());
+
+        userStorage.investedTokenAmountRefunded += investedTokensToRefundScaled;
+
+        // Track stablecoin refunded for this IDO
+        totalRefundedInToken[idoId][user.investedToken] += investedTokensToRefundScaled;
+
+        // Track penalty fees collected (difference between full refund and actual refund)
+        if (percentToReturn < HUNDRED_PERCENT) {
+            _recordRefundPenalties(idoId, user.investedToken, fullRefundUsdt, refundedUsdt, user.investedToken);
+        }
     }
 
     function _currentPhase(IDO memory ido) internal pure returns (Phase) {

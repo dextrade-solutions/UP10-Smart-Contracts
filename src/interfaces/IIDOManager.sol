@@ -113,7 +113,6 @@ interface IIDOManager {
         address indexed investor,
         uint256 amountUsdt,
         address tokenIn,
-        uint256 amountToken,
         uint256 tokensBought,
         uint256 tokensBonus
     );
