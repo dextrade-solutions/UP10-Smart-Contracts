@@ -380,6 +380,20 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         ________________________________________________________________
     */
 
+   function getIDOTotalAllocationUSD(uint256 idoId) external view returns (uint256) {
+        IDOInfo memory info = idos[idoId].info;
+        IDOPricing memory pricing = idoPricing[idoId];
+
+        return _convertToUSDT(info.totalAllocation, pricing.initialPriceUsdt);
+    }
+
+    function getIDOTotalAllocationByUserUSD(uint256 idoId) external view returns (uint256) {
+        IDOInfo memory info = idos[idoId].info;
+        IDOPricing memory pricing = idoPricing[idoId];
+
+        return _convertToUSDT(info.totalAllocationByUser, pricing.initialPriceUsdt);
+    }
+
     function isRefundAvailable(uint256 idoId, bool fullRefund) external view returns (bool) {
         return _isRefundAllowed(idoSchedules[idoId], idoRefundInfo[idoId], idoPricing[idoId], userInfo[idoId][msg.sender], fullRefund);
     }
@@ -451,10 +465,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
     function getUserInfo(
         uint256 idoId,
         address userAddr
-    )
-        external
-        view
-        returns (
+    ) external view returns (
             uint256 investedUsdt,
             uint256 allocatedTokens,
             uint256 claimedTokens,

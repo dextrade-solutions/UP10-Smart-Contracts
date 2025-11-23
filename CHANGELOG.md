@@ -54,7 +54,7 @@
 ### 2.3. Удаленные поля
 
 Следующие поля были **удалены** из структуры IDO:
-- `minAllocationUSDT` - конвертируется в количество токенов при создании
+- `minAllocationUSDT` переименована в `minAllocationUSD`
 - `totalAllocationByUserUSDT` - конвертируется в количество токенов при создании
 - `totalAllocationUSDT` - конвертируется в количество токенов при создании
 
@@ -63,11 +63,15 @@
 ### 2.4. Новая структура IDOInfo
 
 Все поля аллокации теперь хранятся в **токенах** вместо USDT:
-- `minAllocation` (в токенах)
 - `totalAllocationByUser` (в токенах)
 - `totalAllocation` (в токенах)
 
 Конвертация происходит при создании IDO: `valueUSDT * PRICE_DECIMALS / initialPriceUsdt`
+
+### 2.4 Новые геттеры
+Вместо полей добавлены геттеры:
+1. `getIDOTotalAllocationUSD(uint256 idoId)` - конвертирует сумму аллокации в USDT по цене `initialPriceUsdt`.
+2. `getIDOTotalAllocationByUserUSD(uint256 idoId)` - точно так же конвертирует лимит аллокации для юзера в USDT. 
 
 ### 2.5. Разделение политики рефандов
 
