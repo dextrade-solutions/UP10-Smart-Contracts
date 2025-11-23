@@ -22,7 +22,7 @@ interface IIDOManager {
         address tokenAddress;
         uint256 projectId;
         uint256 totalAllocated;
-        uint256 minAllocation;
+        uint256 minAllocationUSD;
         uint256 totalAllocationByUser;
         uint256 totalAllocation;
     }

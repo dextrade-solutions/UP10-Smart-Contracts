@@ -110,7 +110,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
                 projectId: _idoInputInfo.projectId,
                 tokenAddress: _idoInputInfo.tokenAddress,
                 totalAllocated: 0,
-                minAllocation: _idoInputInfo.minAllocation,
+                minAllocationUSD: _idoInputInfo.minAllocationUSD,
                 totalAllocationByUser: _idoInputInfo.totalAllocationByUser,
                 totalAllocation: _idoInputInfo.totalAllocation
             }),
@@ -142,7 +142,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
 
         uint256 amountInUSD = _calculateAmountInUSD(tokenIn, amount);
 
-        require(amountInUSD >= ido.info.minAllocation, BelowMinAllocation());
+        require(amountInUSD >= ido.info.minAllocationUSD, BelowMinAllocation());
 
         (uint256 bonusPercent, Phase phaseNow) = _getPhaseBonus(ido);
 

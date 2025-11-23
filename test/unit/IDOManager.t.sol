@@ -157,7 +157,7 @@ contract IDOManagerTest is Test {
                 tokenAddress: address(0),
                 projectId: 1,
                 totalAllocated: 0,
-                minAllocation: minAllocation,
+                minAllocationUSD: minAllocation,
                 totalAllocationByUser: totalAllocationByUser,
                 totalAllocation: totalAllocation
             }),
@@ -338,7 +338,7 @@ contract IDOManagerTest is Test {
                 tokenAddress: address(0),
                 projectId: 1,
                 totalAllocated: 0,
-                minAllocation: 100e18,
+                minAllocationUSD: 100e18,
                 totalAllocationByUser: 10000e18,
                 totalAllocation: 1000000e18
             }),
