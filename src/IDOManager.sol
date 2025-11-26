@@ -311,12 +311,14 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         address _kyc
     ) external override onlyOwner {
         _setKYCRegistry(_kyc);
+        emit KYCRegistrySet(_kyc);
     }
 
     function setAdminManager (
         address _adminManager
     ) external override onlyOwner {
         _setAdminManager(_adminManager);
+        emit AdminManagerSet(_adminManager);
     }
 
     /// @inheritdoc IIDOManager

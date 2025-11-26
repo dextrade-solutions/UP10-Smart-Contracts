@@ -155,6 +155,8 @@ interface IIDOManager {
     event IdoTimeSet(uint256 idoId, uint64 idoStartTime, uint64 idoEndTime);
     event TokenAddressSet(uint256 idoId, address tokenAddress);
     event TwapSet(uint256 idoId, uint256 price);
+    event KYCRegistrySet(address indexed kycRegistry);
+    event AdminManagerSet(address indexed adminManager);
 
     /// @notice Creates a new IDO with the provided configuration
     /// @dev Only callable by admin. Validates all input parameters and initializes IDO storage

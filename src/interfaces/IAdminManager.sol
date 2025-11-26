@@ -2,6 +2,9 @@
 pragma solidity ^0.8.26;
 
 interface IAdminManager {
+    event AdminAdded(address indexed admin);
+    event AdminRemoved(address indexed admin);
+
     /// @notice Checks if an address has admin privileges
     /// @dev Returns the admin status from the isAdmin mapping
     /// @param _addr The address to check for admin privileges

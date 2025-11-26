@@ -2,6 +2,9 @@
 pragma solidity ^0.8.26;
 
 interface IKYCRegistry {
+    event UserVerified(address indexed user);
+    event UserRevoked(address indexed user);
+
     /// @notice Checks if a user has completed KYC verification
     /// @dev Returns the KYC status from the isVerified mapping
     /// @param user The address of the user to check

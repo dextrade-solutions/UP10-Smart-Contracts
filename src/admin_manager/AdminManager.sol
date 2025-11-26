@@ -8,17 +8,19 @@ contract AdminManager is IAdminManager, Ownable {
     mapping(address => bool) public isAdmin;
 
     constructor(address _initialOwner, address _initialAdmin) Ownable(_initialOwner) {
-        isAdmin[_initialAdmin] = true;
+        _setAdmin(_initialAdmin, true);
     }
 
     /// @inheritdoc IAdminManager
     function addAdmin(address _admin) external onlyOwner {
-        isAdmin[_admin] = true;
+        _setAdmin(_admin, true);
+        emit AdminAdded(_admin);
     }
 
     /// @inheritdoc IAdminManager
     function removeAdmin(address _admin) external onlyOwner {
-        isAdmin[_admin] = false;
+        _setAdmin(_admin, false);
+        emit AdminRemoved(_admin);
     }
 
     /// @inheritdoc IAdminManager

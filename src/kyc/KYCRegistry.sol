@@ -12,11 +12,13 @@ contract KYCRegistry is IKYCRegistry, Ownable {
     /// @inheritdoc IKYCRegistry
     function verify(address user) external onlyOwner {
         isVerified[user] = true;
+        emit UserVerified(user);
     }
 
     /// @inheritdoc IKYCRegistry
     function revoke(address user) external onlyOwner {
         isVerified[user] = false;
+        emit UserRevoked(user);
     }
 
     /// @inheritdoc IKYCRegistry
