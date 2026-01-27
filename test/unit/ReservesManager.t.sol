@@ -3,6 +3,7 @@ pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {ReservesManager} from "../../src/ReservesManager.sol";
+import {WithAdminManager} from "../../src/admin_manager/WithAdminManager.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 // Mock ERC20 token for testing
@@ -45,11 +46,12 @@ contract ReservesManagerHarness is ReservesManager {
     }
 
     constructor(
-        address _admin,
+        address _reservesAdmin,
         address _usdt,
         address _usdc,
-        address _flx
-    ) ReservesManager(_admin, _usdt, _usdc, _flx) {}
+        address _flx,
+        address _adminManager
+    ) ReservesManager(_reservesAdmin, _usdt, _usdc, _flx) WithAdminManager(_adminManager) {}
 
     // Implement abstract function
     function getWithdrawableAmount(
@@ -186,6 +188,7 @@ contract ReservesManagerTest is Test {
     address public admin = makeAddr("admin");
     address public user1 = makeAddr("user1");
     address public newAdmin = makeAddr("newAdmin");
+    address public adminManager;
 
     function setUp() public {
         // Deploy mock tokens
@@ -194,12 +197,16 @@ contract ReservesManagerTest is Test {
         flx = new MockERC20("FLX", "FLX", 18);
         randomToken = new MockERC20("RANDOM", "RND", 18);
 
+        // Create a mock admin manager address
+        adminManager = makeAddr("adminManager");
+
         // Deploy harness
         manager = new ReservesManagerHarness(
             admin,
             address(usdt),
             address(usdc),
-            address(flx)
+            address(flx),
+            adminManager
         );
     }
 
@@ -236,7 +243,8 @@ contract ReservesManagerTest is Test {
             admin,
             address(usdt),
             address(usdc),
-            address(flx)
+            address(flx),
+            adminManager
         );
 
         assertEq(newManager.reservesAdmin(), admin);
@@ -251,7 +259,8 @@ contract ReservesManagerTest is Test {
             address(0),
             address(usdt),
             address(usdc),
-            address(flx)
+            address(flx),
+            adminManager
         );
     }
 
@@ -261,7 +270,8 @@ contract ReservesManagerTest is Test {
             admin,
             address(0),
             address(usdc),
-            address(flx)
+            address(flx),
+            adminManager
         );
     }
 
@@ -271,18 +281,22 @@ contract ReservesManagerTest is Test {
             admin,
             address(usdt),
             address(0),
-            address(flx)
+            address(flx),
+            adminManager
         );
     }
 
-    function test_constructor_RevertsWithZeroFLX() public {
-        vm.expectRevert(abi.encodeWithSignature("InvalidTokenAddress()"));
-        new ReservesManagerHarness(
+    function test_constructor_Success_WithZeroFLX() public {
+        // FLX can be zero as it's not validated in the constructor
+        // (only USDT and USDC are required)
+        ReservesManagerHarness newManager = new ReservesManagerHarness(
             admin,
             address(usdt),
             address(usdc),
-            address(0)
+            address(0),
+            adminManager
         );
+        assertEq(newManager.FLX(), address(0));
     }
 
     // ============================================

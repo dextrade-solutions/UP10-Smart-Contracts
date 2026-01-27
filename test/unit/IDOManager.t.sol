@@ -92,7 +92,7 @@ contract IDOManagerTest is Test {
         kycRegistry = new KYCRegistry(owner);
 
         // Deploy admin manager
-        adminManager = new AdminManager(owner, admin);
+        adminManager = new AdminManager(owner, admin, owner);
 
         // Deploy IDO manager
         idoManager = new IDOManager(
@@ -602,7 +602,7 @@ contract IDOManagerTest is Test {
         _mintAndApprove(user1, address(usdt), investAmount);
 
         vm.expectEmit(true, true, false, false);
-        emit IIDOManager.Investment(idoId, user1, 1000e18, address(usdt), 1200e18, 200e18);
+        emit IIDOManager.Investment(idoId, user1, 1000e18, address(usdt), 1000e18, 1200e18, 200e18);
 
         vm.prank(user1);
         idoManager.invest(idoId, investAmount, address(usdt));
@@ -689,16 +689,17 @@ contract IDOManagerTest is Test {
         assertEq(investedUsdt, 500e18); // Normalized to 18 decimals
     }
 
-    function test_invest_CorrectTokenConversion_18Decimals() public {
+    function test_invest_RevertsWithFLX() public {
+        // FLX is not supported for investment, only USDT/USDC
         uint64 startTime = uint64(block.timestamp);
         uint64 endTime = uint64(block.timestamp + 30 days);
         uint256 idoId = _createBasicIDO(startTime, endTime);
 
-        uint256 investAmount = 500e18; // 500 FLX (18 decimals)
-        _investUser(user1, idoId, investAmount, address(flx));
+        _mintAndApprove(user1, address(flx), 500e18);
 
-        (uint256 investedUsdt, , , , ) = idoManager.getUserInfo(idoId, user1);
-        assertEq(investedUsdt, 500e18); // Already 18 decimals
+        vm.prank(user1);
+        vm.expectRevert(abi.encodeWithSignature("InvalidToken()"));
+        idoManager.invest(idoId, 500e18, address(flx));
     }
 
     function test_invest_UpdatesReservesTracking() public {
@@ -947,7 +948,7 @@ contract IDOManagerTest is Test {
         uint256 balanceBefore = usdt.balanceOf(user1);
 
         vm.expectEmit(true, true, false, false);
-        emit IIDOManager.Refund(idoId, user1, 1200e18, 980e6);
+        emit IIDOManager.Refund(idoId, user1, 1000e18, 980e18, 980e18, 20e18, 3);
 
         vm.prank(user1);
         idoManager.processRefund(idoId, true); // Full refund
@@ -1329,7 +1330,7 @@ contract IDOManagerTest is Test {
     }
 
     function test_setAdminManager_Success() public {
-        address newAdmin = address(new AdminManager(owner, admin));
+        address newAdmin = address(new AdminManager(owner, admin, owner));
 
         vm.expectEmit(true, false, false, false);
         emit IIDOManager.AdminManagerSet(newAdmin);
@@ -2051,7 +2052,8 @@ contract IDOManagerTest is Test {
         assertEq(usdt.balanceOf(reservesAdmin), 350e6);
     }
 
-    function test_withdrawPenaltyFees_Success_WithFLX() public {
+    function test_withdrawPenaltyFees_NoPenaltyInFLX_BecauseFLXNotSupported() public {
+        // FLX is not supported for investment (only USDT/USDC), so there can be no penalty fees in FLX
         uint64 startTime = uint64(block.timestamp);
         uint64 endTime = uint64(block.timestamp + 30 days);
         uint256 idoId = _createBasicIDO(startTime, endTime);
@@ -2059,8 +2061,8 @@ contract IDOManagerTest is Test {
         vm.prank(admin);
         idoManager.setTokenAddress(idoId, address(idoToken));
 
-        // Invest with FLX (18 decimals) - max 8333 to get 10k tokens with 20% bonus
-        _investUser(user1, idoId, 8333e18, address(flx));
+        // Invest with USDT instead
+        _investUser(user1, idoId, 5000e6, address(usdt));
 
         idoToken.mint(address(idoManager), 1000000e18);
 
@@ -2077,10 +2079,10 @@ contract IDOManagerTest is Test {
         vm.prank(user1);
         idoManager.processRefund(idoId, true);
 
-        // Penalty = 8,333 FLX * 5% = 416.65 FLX
+        // No FLX penalty fees since no one invested with FLX
         vm.prank(reservesAdmin);
+        vm.expectRevert(abi.encodeWithSignature("NoPenaltyFees()"));
         idoManager.withdrawPenaltyFees(idoId, address(flx));
-        assertEq(flx.balanceOf(reservesAdmin), 416.65e18);
     }
 
     function test_withdrawPenaltyFees_Success_EmitsEvent() public {
@@ -2302,10 +2304,10 @@ contract IDOManagerTest is Test {
         vm.prank(admin);
         idoManager.setTokenAddress(idoId, address(idoToken));
 
-        // Multiple investors with different tokens
+        // Multiple investors with USDT and USDC (FLX not supported for investment)
         _investUser(user1, idoId, 6000e6, address(usdt));
         _investUser(user2, idoId, 5000e6, address(usdc));
-        _investUser(user3, idoId, 5000e18, address(flx));
+        _investUser(user3, idoId, 5000e6, address(usdt));
 
         idoToken.mint(address(idoManager), 1000000e18);
 
@@ -2343,11 +2345,11 @@ contract IDOManagerTest is Test {
 
         // Penalty fees in USDT
         idoManager.withdrawPenaltyFees(idoId, address(usdt));
-        assertEq(usdt.balanceOf(reservesAdmin), 120e6); // 20,000 * 2%
+        assertEq(usdt.balanceOf(reservesAdmin), 120e6); // 6,000 * 2%
 
         // Penalty fees in USDC
         idoManager.withdrawPenaltyFees(idoId, address(usdc));
-        assertEq(usdc.balanceOf(reservesAdmin), 250e6); // 15,000 * 5%
+        assertEq(usdc.balanceOf(reservesAdmin), 250e6); // 5,000 * 5%
 
         vm.stopPrank();
     }

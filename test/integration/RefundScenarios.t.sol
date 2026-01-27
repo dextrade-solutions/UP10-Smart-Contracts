@@ -63,7 +63,7 @@ contract RefundScenariosIntegrationTest is Test {
         kycRegistry = new KYCRegistry(owner);
 
         // Deploy admin manager
-        adminManager = new AdminManager(owner, admin);
+        adminManager = new AdminManager(owner, admin, owner);
 
         // Deploy IDO manager
         idoManager = new IDOManager(
@@ -353,11 +353,11 @@ contract RefundScenariosIntegrationTest is Test {
         uint256 idoId = _createIDO();
         _setupIDO(idoId);
 
-        // 2. Multiple users invest with different tokens
+        // 2. Multiple users invest with different tokens (FLX not supported)
         vm.warp(vm.getBlockTimestamp() + 1 days);
         _investUser(user1, idoId, 1000e6, address(usdt));
         _investUser(user2, idoId, 500e6, address(usdc));
-        _investUser(user3, idoId, 750e18, address(flx));
+        _investUser(user3, idoId, 750e6, address(usdt));
         _investUser(user4, idoId, 2000e6, address(usdt));
 
         // 3. User1 requests full refund before TGE (2% penalty)
@@ -387,14 +387,12 @@ contract RefundScenariosIntegrationTest is Test {
         vm.prank(user4);
         idoManager.processRefund(idoId, false);
 
-        // 9. Verify all penalty fees can be withdrawn
+        // 9. Verify all penalty fees can be withdrawn (FLX not used for investment)
         uint256 penaltyFeesUSDT = idoManager.penaltyFeesCollected(idoId, address(usdt));
         uint256 penaltyFeesUSDC = idoManager.penaltyFeesCollected(idoId, address(usdc));
-        uint256 penaltyFeesFLX = idoManager.penaltyFeesCollected(idoId, address(flx));
 
         assertGt(penaltyFeesUSDT, 0);
         assertGt(penaltyFeesUSDC, 0);
-        assertGt(penaltyFeesFLX, 0);
 
         // Admin withdraws all penalty fees
         vm.startPrank(reservesAdmin);
@@ -403,9 +401,6 @@ contract RefundScenariosIntegrationTest is Test {
         }
         if (penaltyFeesUSDC > 0) {
             idoManager.withdrawPenaltyFees(idoId, address(usdc));
-        }
-        if (penaltyFeesFLX > 0) {
-            idoManager.withdrawPenaltyFees(idoId, address(flx));
         }
         vm.stopPrank();
 

@@ -63,7 +63,7 @@ contract FullLifecycleIntegrationTest is Test {
         kycRegistry = new KYCRegistry(owner);
 
         // Deploy admin manager
-        adminManager = new AdminManager(owner, admin);
+        adminManager = new AdminManager(owner, admin, owner);
 
         // Deploy IDO manager
         idoManager = new IDOManager(
@@ -199,7 +199,7 @@ contract FullLifecycleIntegrationTest is Test {
 
         // 5. Advance to Phase 2 (middle third)
         vm.warp(vm.getBlockTimestamp() + 2.5 days);
-        _investUser(user3, idoId, 750e18, address(flx)); // $750 in FLX
+        _investUser(user3, idoId, 750e6, address(usdt)); // $750 in USDT (FLX not supported)
 
         // 6. Advance to Phase 3 (last third)
         vm.warp(vm.getBlockTimestamp() + 2.5 days);
@@ -259,11 +259,7 @@ contract FullLifecycleIntegrationTest is Test {
             idoManager.withdrawStablecoins(idoId, address(usdc), withdrawableUSDC);
         }
 
-        uint256 withdrawableFLX = idoManager.getWithdrawableAmount(idoId, address(flx));
-        if (withdrawableFLX > 0) {
-            vm.prank(reservesAdmin);
-            idoManager.withdrawStablecoins(idoId, address(flx), withdrawableFLX);
-        }
+        // Note: FLX is not used for investment, so no FLX withdrawable
 
         // 14. Advance to full vesting completion
         vm.warp(vm.getBlockTimestamp() + 91 days);
@@ -294,11 +290,7 @@ contract FullLifecycleIntegrationTest is Test {
             idoManager.withdrawStablecoins(idoId, address(usdc), withdrawableUSDC);
         }
 
-        withdrawableFLX = idoManager.getWithdrawableAmount(idoId, address(flx));
-        if (withdrawableFLX > 0) {
-            vm.prank(reservesAdmin);
-            idoManager.withdrawStablecoins(idoId, address(flx), withdrawableFLX);
-        }
+        // Note: FLX is not used for investment, so no FLX withdrawable
 
         // 16. Check if there are unsold tokens and withdraw them
         (, , IIDOManager.IDOInfo memory idoInfo, ) = idoManager.idos(idoId);
@@ -444,11 +436,11 @@ contract FullLifecycleIntegrationTest is Test {
         uint256 idoId = _createIDO();
         _setupIDO(idoId);
 
-        // 2. Advance to IDO start and all users invest
+        // 2. Advance to IDO start and all users invest (FLX not supported)
         vm.warp(vm.getBlockTimestamp() + 1 days);
         _investUser(user1, idoId, 1000e6, address(usdt));
         _investUser(user2, idoId, 500e6, address(usdc));
-        _investUser(user3, idoId, 750e18, address(flx));
+        _investUser(user3, idoId, 750e6, address(usdt));
 
         // 3. Advance to TGE
         vm.warp(vm.getBlockTimestamp() + 10 days);
@@ -524,11 +516,11 @@ contract FullLifecycleIntegrationTest is Test {
         uint256 idoId = _createIDO();
         _setupIDO(idoId);
 
-        // 2. Users invest
+        // 2. Users invest (FLX not supported)
         vm.warp(vm.getBlockTimestamp() + 1 days);
         _investUser(user1, idoId, 1000e6, address(usdt));
         _investUser(user2, idoId, 500e6, address(usdc));
-        _investUser(user3, idoId, 750e18, address(flx));
+        _investUser(user3, idoId, 750e6, address(usdt));
 
         // 3. Advance to TGE
         vm.warp(vm.getBlockTimestamp() + 10 days);
