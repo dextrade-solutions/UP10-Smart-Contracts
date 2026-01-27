@@ -75,8 +75,7 @@ contract EdgeCasesComplexScenariosTest is Test {
             address(flx),
             address(kycRegistry),
             reservesAdmin,
-            address(adminManager),
-            owner
+            address(adminManager)
         );
 
         // Setup: Verify users for KYC (but not userNoKYC)

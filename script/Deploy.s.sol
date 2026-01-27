@@ -7,7 +7,8 @@ import "../src/IDOManager.sol";
 contract Deploy is Script {
     function run() external {
         vm.startBroadcast();
-        new IDOManager();
+        // TODO: Add constructor arguments
+        // new IDOManager(usdt, usdc, flx, kyc, reservesAdmin, adminManager);
         vm.stopBroadcast();
     }
 }

@@ -2,7 +2,6 @@
 pragma solidity 0.8.30;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "./ReservesManager.sol";
 import "./kyc/WithKYCRegistry.sol";
 import "./admin_manager/WithAdminManager.sol";
@@ -13,7 +12,7 @@ import "./interfaces/IReservesManager.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./Errors.sol";
 
-contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, WithKYCRegistry, WithAdminManager, ReservesManager {
+contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCRegistry, WithAdminManager, ReservesManager {
     using Math for uint256;
     using SafeERC20 for IERC20;
 
@@ -47,9 +46,8 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, WithKYCRegistry, W
         address _flx,
         address _kyc,
         address _reservesAdmin,
-        address _adminManager,
-        address _initialOwner
-    ) Ownable(_initialOwner) WithAdminManager(_adminManager) ReservesManager(_reservesAdmin, _usdt, _usdc, _flx) WithKYCRegistry(_kyc) {
+        address _adminManager
+    ) WithAdminManager(_adminManager) ReservesManager(_reservesAdmin, _usdt, _usdc, _flx) WithKYCRegistry(_kyc) {
     }
 
     /// @inheritdoc IIDOManager
