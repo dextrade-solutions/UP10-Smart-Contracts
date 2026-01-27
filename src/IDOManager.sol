@@ -47,7 +47,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCRegistry, WithAdminM
         address _kyc,
         address _reservesAdmin,
         address _adminManager
-    ) WithAdminManager(_adminManager) ReservesManager(_reservesAdmin, _usdt, _usdc, _flx) WithKYCRegistry(_kyc) {
+    ) WithAdminManager(_adminManager) ReservesManager(_usdt, _usdc, _flx) WithKYCRegistry(_kyc) {
     }
 
     /// @inheritdoc IIDOManager
@@ -246,61 +246,6 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCRegistry, WithAdminM
         emit Refund(idoId, msg.sender, tokensToRefund, investedTokensToRefund, refundedUsdt, penaltyUsdt, refundFlags);
     }
 
-    /// @inheritdoc IReservesManager
-    function withdrawStablecoins(
-        uint256 idoId,
-        address token,
-        uint256 amount
-    ) external override onlyReservesAdmin {
-
-        _withdrawStablecoins(
-            idoId,
-            token,
-            amount,
-            totalRaisedInToken[idoId][token],
-            totalRefundedInToken[idoId][token],
-            totalClaimedTokens[idoId],
-            idos[idoId].info.totalAllocated,
-            idoRefundInfo[idoId].totalRefunded + idoRefundInfo[idoId].refundedBonus
-        );
-    }
-
-    /// @inheritdoc IReservesManager
-    function withdrawUnsoldTokens(uint256 idoId) external override onlyReservesAdmin {
-        IDOInfo memory info = idos[idoId].info;
-        IDOSchedules memory schedules = idoSchedules[idoId];
-
-        _withdrawUnsoldTokens(
-            idoId,
-            info.tokenAddress,
-            info.totalAllocation,
-            info.totalAllocated,
-            schedules.idoEndTime
-        );
-    }
-
-    /// @inheritdoc IReservesManager
-    function withdrawRefundedTokens(uint256 idoId) external override onlyReservesAdmin {
-        IDOInfo memory info = idos[idoId].info;
-        IDORefundInfo memory refundInfo = idoRefundInfo[idoId];
-
-        _withdrawRefundedTokens(
-            idoId,
-            info.tokenAddress,
-            refundInfo.totalRefunded,
-            refundInfo.refundedBonus
-        );
-    }
-
-    /// @inheritdoc IReservesManager
-    function withdrawPenaltyFees(uint256 idoId, address stablecoin) external override onlyReservesAdmin {
-        _withdrawPenaltyFees(
-            idoId,
-            stablecoin,
-            penaltyFeesCollected[idoId][stablecoin]
-        );
-    }
-
     /*
         SETTERS
         ________________________________________________________________
@@ -438,22 +383,6 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCRegistry, WithAdminM
 
         totalRefundAmount = _getTokensAvailableToRefund(schedules, refundInfo, pricing, userInfoLocal, fullRefund);
         refundPercentAfterPenalty = _getRefundPercentAfterPenalty(schedules, refundInfo, pricing, userInfoLocal, fullRefund);
-    }
-
-    /// @inheritdoc IReservesManager
-    function getWithdrawableAmount(
-        uint256 idoId,
-        address token
-    ) external view override returns (uint256) {
-        return _getWithdrawableAmount(
-            idoId,
-            token,
-            totalRaisedInToken[idoId][token],
-            totalRefundedInToken[idoId][token],
-            totalClaimedTokens[idoId],
-            idos[idoId].info.totalAllocated,
-            idoRefundInfo[idoId].totalRefunded + idoRefundInfo[idoId].refundedBonus
-        );
     }
 
     /// @inheritdoc IIDOManager
