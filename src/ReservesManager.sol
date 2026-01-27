@@ -4,10 +4,11 @@ pragma solidity ^0.8.26;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import "./EmergencyWithdrawAdmin.sol";
 import "./interfaces/IReservesManager.sol";
 import "./Errors.sol";
 
-abstract contract ReservesManager is IReservesManager {
+abstract contract ReservesManager is IReservesManager, EmergencyWithdrawAdmin {
     using Math for uint256;
     using SafeERC20 for IERC20;
 
@@ -48,7 +49,7 @@ abstract contract ReservesManager is IReservesManager {
 
     constructor(address _initialAdmin, address _usdt, address _usdc, address _flx) {
         require(_initialAdmin != address(0), InvalidZeroAddress());
-        require(_usdt != address(0) && _usdc != address(0) && _flx != address(0), InvalidTokenAddress());
+        require(_usdt != address(0) && _usdc != address(0), InvalidTokenAddress());
 
         reservesAdmin = _initialAdmin;
         USDT = _usdt;

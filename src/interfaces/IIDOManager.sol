@@ -135,6 +135,7 @@ interface IIDOManager {
         address indexed investor,
         uint256 amountUsdt,
         address tokenIn,
+        uint256 amountToken,
         uint256 tokensBought,
         uint256 tokensBonus
     );
@@ -142,7 +143,10 @@ interface IIDOManager {
         uint256 indexed idoId,
         address indexed investor,
         uint256 tokensToRefund,
-        uint256 refundedAmount
+        uint256 refundedAmount,
+        uint256 refundedUsdt, 
+        uint256 penaltyUsdt,
+        uint8 refundFlags
     );
     event TokensClaimed(
         uint256 indexed idoId,

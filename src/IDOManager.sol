@@ -13,7 +13,7 @@ import "./interfaces/IReservesManager.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./Errors.sol";
 
-contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, WithKYCRegistry, WithAdminManager {
+contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, WithKYCRegistry, WithAdminManager, ReservesManager {
     using Math for uint256;
     using SafeERC20 for IERC20;
 
@@ -49,8 +49,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         address _reservesAdmin,
         address _adminManager,
         address _initialOwner
-    ) Ownable(_initialOwner) WithAdminManager(_adminManager)
-      ReservesManager(_reservesAdmin, _usdt, _usdc, _flx) WithKYCRegistry(_kyc) {
+    ) Ownable(_initialOwner) WithAdminManager(_adminManager) ReservesManager(_reservesAdmin, _usdt, _usdc, _flx) WithKYCRegistry(_kyc) {
     }
 
     /// @inheritdoc IIDOManager
@@ -133,7 +132,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         uint256 amount,
         address tokenIn
     ) external nonReentrant onlyKYC {
-        require(tokenIn == USDT || tokenIn == USDC || tokenIn == FLX, InvalidToken());
+        require(tokenIn == USDT || tokenIn == USDC, InvalidToken());
 
         IDO storage ido = idos[idoId];
         IDOSchedules memory schedules = idoSchedules[idoId];
@@ -143,7 +142,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
 
         _validateInvestmentState(ido, schedules, user, pricing);
 
-        uint256 amountInUSD = _calculateAmountInUSD(tokenIn, amount);
+        (uint256 amountInUSD, uint256 normalizedAmount) = _calculateAmountInUSD(tokenIn, amount);
 
         require(amountInUSD >= ido.info.minAllocationUSD, BelowMinAllocation());
 
@@ -173,7 +172,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         // Track stablecoin raised for this IDO
         totalRaisedInToken[idoId][tokenIn] += amount;
 
-        emit Investment(idoId, msg.sender, amountInUSD, tokenIn, tokensBought, tokensBonus);
+        emit Investment(idoId, msg.sender, amountInUSD, tokenIn, normalizedAmount, tokensBought, tokensBonus);
     }
 
     /// @inheritdoc IIDOManager
@@ -234,7 +233,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
             fullRefund
         );
 
-        uint256 investedTokensToRefundScaled = _updateRefundStateAndCalculateRefundAmount(
+        (uint256 investedTokensToRefundScaled, uint256 refundedUsdt, uint256 penaltyUsdt, uint256 investedTokensToRefund) = _updateRefundStateAndCalculateRefundAmount(
             idoId,
             tokensToRefund,
             percentToReturn,
@@ -242,9 +241,11 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
             pricing.initialPriceUsdt
         );
 
+        uint8 refundFlags = _calcRefundFlags(schedules, pricing, refundInfo, fullRefund);
+
         IERC20(user.investedToken).safeTransfer(msg.sender, investedTokensToRefundScaled);
 
-        emit Refund(idoId, msg.sender, tokensToRefund, investedTokensToRefundScaled);
+        emit Refund(idoId, msg.sender, tokensToRefund, investedTokensToRefund, refundedUsdt, penaltyUsdt, refundFlags);
     }
 
     /// @inheritdoc IReservesManager
@@ -309,14 +310,14 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
 
     function setKYCRegistry(
         address _kyc
-    ) external override onlyOwner {
+    ) external override onlySuperAdmin {
         _setKYCRegistry(_kyc);
         emit KYCRegistrySet(_kyc);
     }
 
     function setAdminManager (
         address _adminManager
-    ) external override onlyOwner {
+    ) external override onlySuperAdmin {
         _setAdminManager(_adminManager);
         emit AdminManagerSet(_adminManager);
     }
@@ -528,6 +529,21 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         );
     }
 
+    function _calcRefundFlags(
+        IDOSchedules memory schedules,
+        IDOPricing memory pricing,
+        IDORefundInfo memory refundInfo,
+        bool fullRefund
+    ) internal view returns (uint8 currentRefundFlags) {
+        bool isBeforeTge = schedules.tgeTime == 0 || block.timestamp < schedules.tgeTime;
+        bool isTWAPBelowFullRefund = pricing.twapPriceUsdt > 0 && pricing.twapPriceUsdt <= pricing.fullRefundPriceUsdt;
+
+        currentRefundFlags = 0;
+        if (isBeforeTge) currentRefundFlags |= 1 << 0;
+        if (fullRefund) currentRefundFlags |= 1 << 1;
+        if (isTWAPBelowFullRefund) currentRefundFlags |= 1 << 2;
+    }
+
     function _getTokensAvailableToRefund(
         IDOSchedules memory schedules,
         IDORefundInfo memory refundInfo,
@@ -583,14 +599,14 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
     function _calculateAmountInUSD(
         address tokenIn,
         uint256 amount
-    ) internal view returns (uint256 amountInUSD) {
+    ) internal view returns (uint256 amountInUSD, uint256 normalizedTokenAmount) {
         uint256 staticPrice = staticPrices[tokenIn];
 
         require(staticPrice > 0, StaticPriceNotSet());
 
         ERC20 _tokenIn = ERC20(tokenIn);
         uint256 normalizedAmount = amount.mulDiv(DECIMALS, 10 ** _tokenIn.decimals());
-        return _convertToUSDT(normalizedAmount, staticPrice);
+        return (_convertToUSDT(normalizedAmount, staticPrice), normalizedAmount);
     }
 
     function _calculateTokensBought(
@@ -651,11 +667,12 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         uint256 fullRefundUsdt,
         uint256 refundedUsdt,
         address investedToken
-    ) internal {
+    ) internal returns (uint256) {
         uint256 penaltyUsdt = fullRefundUsdt - refundedUsdt;
         uint256 penaltyInInvestedToken = _convertFromUSDT(penaltyUsdt, staticPrices[investedToken]);
         uint256 penaltyScaled = penaltyInInvestedToken.mulDiv(10 ** ERC20(token).decimals(), DECIMALS);
         penaltyFeesCollected[idoId][investedToken] += penaltyScaled;
+        return penaltyUsdt;
     }
 
     function _calculateBonusAmount(UserInfo memory user) internal pure returns (uint256) {
@@ -669,7 +686,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         uint256 percentToReturn,
         uint256 bonusToSub,
         uint256 initialPriceUsdt
-    ) internal returns (uint256 investedTokensToRefundScaled) {
+    ) internal returns (uint256 investedTokensToRefundScaled, uint256 refundedUsdt, uint256 penaltyUsdt, uint256 investedTokensToRefund) {
         UserInfo storage userStorage = userInfo[idoId][msg.sender];
         UserInfo memory user = userInfo[idoId][msg.sender];
 
@@ -680,12 +697,12 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
         idoRefundInfo[idoId].refundedBonus += bonusToSub;
 
         uint256 fullRefundUsdt = _convertToUSDT(tokensToRefund, initialPriceUsdt);
-        uint256 refundedUsdt = fullRefundUsdt.mulDiv(percentToReturn, HUNDRED_PERCENT);
+        refundedUsdt = fullRefundUsdt.mulDiv(percentToReturn, HUNDRED_PERCENT);
 
         idoRefundInfo[idoId].totalRefundedUSDT += refundedUsdt;
         userStorage.refundedUsdt += refundedUsdt;
 
-        uint256 investedTokensToRefund = _convertFromUSDT(refundedUsdt, staticPrices[user.investedToken]);
+        investedTokensToRefund = _convertFromUSDT(refundedUsdt, staticPrices[user.investedToken]);
         ERC20 token = ERC20(user.investedToken);
         investedTokensToRefundScaled = investedTokensToRefund.mulDiv(10 ** token.decimals(), DECIMALS);
 
@@ -698,7 +715,9 @@ contract IDOManager is IIDOManager, ReentrancyGuard, Ownable, ReservesManager, W
 
         // Track penalty fees collected (difference between full refund and actual refund)
         if (percentToReturn < HUNDRED_PERCENT) {
-            _recordRefundPenalties(idoId, user.investedToken, fullRefundUsdt, refundedUsdt, user.investedToken);
+            penaltyUsdt = _recordRefundPenalties(idoId, user.investedToken, fullRefundUsdt, refundedUsdt, user.investedToken);
+        } else {
+            penaltyUsdt = 0;
         }
     }
 
