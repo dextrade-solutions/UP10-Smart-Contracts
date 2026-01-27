@@ -45,7 +45,6 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCRegistry, WithAdminM
         address _usdc,
         address _flx,
         address _kyc,
-        address _reservesAdmin,
         address _adminManager
     ) WithAdminManager(_adminManager) ReservesManager(_usdt, _usdc, _flx) WithKYCRegistry(_kyc) {
     }
