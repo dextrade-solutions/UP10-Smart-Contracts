@@ -11,6 +11,17 @@ interface IAdminManager {
     /// @return True if the address is an admin, false otherwise
     function isAdminAddress(address _addr) external view returns (bool);
 
+    /// @notice Grants super admin privileges to an address
+    /// @dev Sets the super admin
+    /// @param _addr The address to be set as super admin
+    function setSuperAdmin(address _addr) external;
+
+    /// @notice Checks if an address has super admin privileges
+    /// @dev Returns the super admin status from the superAdmin variable
+    /// @param _addr The address to check for super admin privileges
+    /// @return True if the address is a super admin, false otherwise
+    function isSuperAdminAddress(address _addr) external view returns (bool);
+
     /// @notice Grants admin privileges to an address
     /// @dev Only callable by owner. Sets the address's admin status to true
     /// @param _admin The address to grant admin privileges
@@ -20,4 +31,9 @@ interface IAdminManager {
     /// @dev Only callable by owner. Sets the address's admin status to false
     /// @param _admin The address to revoke admin privileges from
     function removeAdmin(address _admin) external;
+
+    /// @notice Emitted when the super admin is changed
+    /// @param previousSuperAdmin The address of the previous super admin
+    /// @param newSuperAdmin The address of the new super admin
+    event SuperAdminChanged(address indexed previousSuperAdmin, address indexed newSuperAdmin);
 }

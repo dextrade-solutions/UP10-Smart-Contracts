@@ -12,6 +12,11 @@ abstract contract WithAdminManager {
         _;
     }
 
+    modifier onlySuperAdmin() {
+        require(adminManager.isSuperAdminAddress(msg.sender), CallerNotSuperAdmin());
+        _;
+    }
+
     constructor(address _adminManager) {
         _setAdminManager(_adminManager);
     }

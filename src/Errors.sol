@@ -57,6 +57,8 @@ error KYCRequired();
 // @notice Thrown when caller is not an admin
 error CallerNotAdmin();
 
+error CallerNotSuperAdmin();
+
 // ============================================
 // IDOManager Errors - Input Validation
 // ============================================
