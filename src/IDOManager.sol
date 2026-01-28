@@ -47,6 +47,8 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCRegistry, WithAdminM
         address _kyc,
         address _adminManager
     ) WithAdminManager(_adminManager) ReservesManager(_usdt, _usdc, _flx) WithKYCRegistry(_kyc) {
+        staticPrices[_usdt] = PRICE_DECIMALS;
+        staticPrices[_usdc] = PRICE_DECIMALS;
     }
 
     /// @inheritdoc IIDOManager
