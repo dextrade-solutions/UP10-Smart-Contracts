@@ -40,6 +40,9 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, WithAdminM
 
     mapping(address => uint256) public staticPrices;
 
+    /// @notice KYC threshold in USD (18 decimals). Investments >= this amount require KYC verification
+    uint256 public kycThresholdUSD;
+
     constructor(
         address _usdt,
         address _usdc,
@@ -49,6 +52,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, WithAdminM
     ) WithAdminManager(_adminManager) ReservesManager(_usdt, _usdc, _flx) WithKYCVerifier(_kycVerifier) {
         staticPrices[_usdt] = PRICE_DECIMALS;
         staticPrices[_usdc] = PRICE_DECIMALS;
+        kycThresholdUSD = 100 * DECIMALS; // 100 USD default
     }
 
     /// @inheritdoc IIDOManager
@@ -133,7 +137,6 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, WithAdminM
         uint256 kycExpires,
         bytes calldata kycSignature
     ) external nonReentrant {
-        kycVerifier.verifyKYC(kycExpires, kycSignature);
         require(tokenIn == USDT || tokenIn == USDC, InvalidToken());
 
         IDO storage ido = idos[idoId];
@@ -145,6 +148,11 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, WithAdminM
         _validateInvestmentState(ido, schedules, user, pricing);
 
         (uint256 amountInUSD, uint256 normalizedAmount) = _calculateAmountInUSD(tokenIn, amount);
+
+        // KYC required only for investments >= kycThresholdUSD
+        if (amountInUSD >= kycThresholdUSD) {
+            kycVerifier.verifyKYC(kycExpires, kycSignature);
+        }
 
         require(amountInUSD >= ido.info.minAllocationUSD, BelowMinAllocation());
 
@@ -267,6 +275,12 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, WithAdminM
     ) external override onlySuperAdmin {
         _setAdminManager(_adminManager);
         emit AdminManagerSet(_adminManager);
+    }
+
+    /// @inheritdoc IIDOManager
+    function setKYCThresholdUSD(uint256 _threshold) external onlyAdmin {
+        kycThresholdUSD = _threshold;
+        emit KYCThresholdUSDSet(_threshold);
     }
 
     /// @inheritdoc IIDOManager

@@ -161,6 +161,7 @@ interface IIDOManager {
     event TwapSet(uint256 idoId, uint256 price);
     event KYCVerifierSet(address indexed kycVerifier);
     event AdminManagerSet(address indexed adminManager);
+    event KYCThresholdUSDSet(uint256 threshold);
 
     /// @notice Creates a new IDO with the provided configuration
     /// @dev Only callable by admin. Validates all input parameters and initializes IDO storage
@@ -230,6 +231,11 @@ interface IIDOManager {
     /// @param idoId The identifier of the IDO
     /// @param _address The project token contract address
     function setTokenAddress(uint256 idoId, address _address) external;
+
+    /// @notice Sets the KYC threshold in USD. Investments >= this amount require KYC verification
+    /// @dev Only callable by admin. Amount uses 18 decimal precision (e.g., 100 USD = 100e18)
+    /// @param _threshold The new KYC threshold in USD
+    function setKYCThresholdUSD(uint256 _threshold) external;
 
     /// @notice Calculates the total IDO allocation in USD
     /// @dev Converts totalAllocation to USD using the initial price
