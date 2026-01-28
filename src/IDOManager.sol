@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./ReservesManager.sol";
-import "./kyc/WithKYCRegistry.sol";
+import "./kyc/WithKYCVerifier.sol";
 import "./admin_manager/WithAdminManager.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -12,7 +12,7 @@ import "./interfaces/IReservesManager.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./Errors.sol";
 
-contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCRegistry, WithAdminManager, ReservesManager {
+contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, WithAdminManager, ReservesManager {
     using Math for uint256;
     using SafeERC20 for IERC20;
 
@@ -44,9 +44,9 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCRegistry, WithAdminM
         address _usdt,
         address _usdc,
         address _flx,
-        address _kyc,
+        address _kycVerifier,
         address _adminManager
-    ) WithAdminManager(_adminManager) ReservesManager(_usdt, _usdc, _flx) WithKYCRegistry(_kyc) {
+    ) WithAdminManager(_adminManager) ReservesManager(_usdt, _usdc, _flx) WithKYCVerifier(_kycVerifier) {
         staticPrices[_usdt] = PRICE_DECIMALS;
         staticPrices[_usdc] = PRICE_DECIMALS;
     }
@@ -129,8 +129,11 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCRegistry, WithAdminM
     function invest(
         uint256 idoId,
         uint256 amount,
-        address tokenIn
-    ) external nonReentrant onlyKYC {
+        address tokenIn,
+        uint256 kycExpires,
+        bytes calldata kycSignature
+    ) external nonReentrant {
+        kycVerifier.verifyKYC(kycExpires, kycSignature);
         require(tokenIn == USDT || tokenIn == USDC, InvalidToken());
 
         IDO storage ido = idos[idoId];
@@ -252,11 +255,11 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCRegistry, WithAdminM
         ________________________________________________________________
     */
 
-    function setKYCRegistry(
-        address _kyc
+    function setKYCVerifier(
+        address _kycVerifier
     ) external override onlySuperAdmin {
-        _setKYCRegistry(_kyc);
-        emit KYCRegistrySet(_kyc);
+        _setKYCVerifier(_kycVerifier);
+        emit KYCVerifierSet(_kycVerifier);
     }
 
     function setAdminManager (

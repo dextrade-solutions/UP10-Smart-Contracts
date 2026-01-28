@@ -159,7 +159,7 @@ interface IIDOManager {
     event IdoTimeSet(uint256 idoId, uint64 idoStartTime, uint64 idoEndTime);
     event TokenAddressSet(uint256 idoId, address tokenAddress);
     event TwapSet(uint256 idoId, uint256 price);
-    event KYCRegistrySet(address indexed kycRegistry);
+    event KYCVerifierSet(address indexed kycVerifier);
     event AdminManagerSet(address indexed adminManager);
 
     /// @notice Creates a new IDO with the provided configuration
@@ -169,14 +169,18 @@ interface IIDOManager {
     function createIDO(IDOInput calldata idoInput) external returns (uint256);
 
     /// @notice Allows a KYC-verified user to invest in an IDO
-    /// @dev Requires KYC verification. Applies phase-based bonuses and validates allocation limits
+    /// @dev Requires KYC verification via signature. Applies phase-based bonuses and validates allocation limits
     /// @param idoId The identifier of the IDO to invest in
     /// @param amount The amount of stablecoin to invest
     /// @param tokenIn The stablecoin address to invest with (USDT, USDC, or FLX)
+    /// @param kycExpires The timestamp when the KYC signature expires
+    /// @param kycSignature The signed KYC verification data from the KYC authority
     function invest(
         uint256 idoId,
         uint256 amount,
-        address tokenIn
+        address tokenIn,
+        uint256 kycExpires,
+        bytes calldata kycSignature
     ) external;
 
     /// @notice Processes a refund for a user's investment in an IDO
