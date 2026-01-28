@@ -19,6 +19,9 @@
 7. Remove legacy/old withdraw logic and other redundant code paths in `IDOManager` and `ReservesManager`
 8. Update reserves admin interface `IReservesManager` to match the new contract changes
 9. Initializing USDT and USDC static prices as "1"
+10. Remove reserves admin withdrawal entrypoints from `IDOManager` (`getWithdrawableAmount`, `withdrawStablecoins`, `withdrawUnsoldTokens`, `withdrawRefundedTokens`, `withdrawPenaltyFees`) and the related logic in `ReservesManager`
+11. Emit refund flags bitmask (before TGE, full refund, TWAP below full-refund price) and refund amounts in normalized token units
+12. Allow super admin emergency withdrawals of ERC20 and native ETH via `EmergencyWithdrawAdmin`
 
 ## Scripts
 1. Add `script/Deploy.s.sol` deployment script
