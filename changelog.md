@@ -2,6 +2,13 @@
 1. Added dependency management. Fix Openzeppelin imports 
 
 # 2026-01-28
+
+## Configurable KYC Threshold
+1. Add `kycThresholdUSD` state variable (default 100 USD) - investments >= threshold require KYC, below threshold KYC is optional
+2. Add `setKYCThresholdUSD()` admin setter to change the threshold
+3. Add `KYCThresholdUSDSet` event
+4. Update `invest()` to conditionally verify KYC based on investment amount vs threshold
+
 ## KYC Verification - KYCRegistry → KYCVerifier
 
 ### New Contracts
