@@ -18,6 +18,7 @@
 6. Remove Ownable import/inheritance from `IDOManager` and drop `_initialOwner` constructor arg
 7. Remove legacy/old withdraw logic and other redundant code paths in `IDOManager` and `ReservesManager`
 8. Update reserves admin interface `IReservesManager` to match the new contract changes
+9. Initializing USDT and USDC static prices as "1"
 
 ## Scripts
 1. Add `script/Deploy.s.sol` deployment script
