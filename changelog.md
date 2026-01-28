@@ -1,6 +1,30 @@
 # General
 1. Added dependency management. Fix Openzeppelin imports 
 
+# 2026-01-28
+## KYC Verification - KYCRegistry → KYCVerifier
+
+### New Contracts
+1. Add `KYCVerifier.sol` - EIP-712 signature-based KYC verification with nonce replay protection
+2. Add `IKYCVerifier.sol` - Interface for KYCVerifier
+3. Add `WithKYCVerifier.sol` - Abstract contract for KYCVerifier integration
+
+### IDOManager Changes
+1. Replace `WithKYCRegistry` with `WithKYCVerifier`
+2. Update `invest()` signature: add `kycExpires` and `kycSignature` parameters
+3. Remove `onlyKYC` modifier, now calls `kycVerifier.verifyKYC()` directly
+4. Rename `setKYCRegistry()` → `setKYCVerifier()`
+5. Rename event `KYCRegistrySet` → `KYCVerifierSet`
+
+### Breaking Changes
+- `invest(uint256 idoId, uint256 amount, address tokenIn)` → `invest(uint256 idoId, uint256 amount, address tokenIn, uint256 kycExpires, bytes calldata kycSignature)`
+- Constructor `_kyc` parameter now expects KYCVerifier address instead of KYCRegistry
+
+### Tests
+1. Add comprehensive unit tests for KYCVerifier (27 tests covering constructor, setKYCSigner, verifyKYC, nonces, replay attacks, fuzz tests)
+
+---
+
 # IDOManager
 1. Fix Ownable initialization
 2. Remove "isPartialRefundAllowedBeforeTGE" because only full refunds can be allowed before TGE
