@@ -46,6 +46,21 @@ abstract contract ReservesManager is IReservesManager, EmergencyWithdrawAdmin {
         SUPPORTED_TOKENS = supported;
     }
 
+    function getSupportedTokensWithPrices() external view returns (TokenConfig[] memory) {
+        TokenConfig[] memory tokens = new TokenConfig[](SUPPORTED_TOKENS.length);
+
+        for (uint256 i; i < SUPPORTED_TOKENS.length; ) {
+            tokens[i] = TokenConfig({
+                token: SUPPORTED_TOKENS[i],
+                price: staticPrices[SUPPORTED_TOKENS[i]]
+            });
+
+            unchecked { ++i; }
+        }
+
+        return (tokens);
+    }
+
     /// @inheritdoc IReservesManager
     function isTokenSupported(address token) public view returns (bool) {
         return enabledTokens[token];
