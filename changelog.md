@@ -8,6 +8,10 @@
 2. Update `IDOManager.invest()` to pass `msg.sender` as user to `kycVerifier.verifyKYC()`
 3. Update all KYCVerifier unit tests to include the new `user` parameter
 
+
+## IDOManager
+1. Update `_calcRefundFlags()` to remove unused variable
+
 # 2026-01-28
 
 ## Configurable KYC Threshold
