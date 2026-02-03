@@ -140,7 +140,7 @@ contract KYCVerifierTest is Test {
         emit KYCVerified(user1, expires);
 
         vm.prank(user1);
-        kycVerifier.verifyKYC(expires, signature);
+        kycVerifier.verifyKYC(user1, expires, signature);
 
         // Nonce should be incremented
         assertEq(kycVerifier.nonces(user1), nonce + 1);
@@ -152,13 +152,13 @@ contract KYCVerifierTest is Test {
         // User1 verifies
         bytes memory sig1 = _signKYC(SIGNER_PRIVATE_KEY, user1, expires, 0);
         vm.prank(user1);
-        kycVerifier.verifyKYC(expires, sig1);
+        kycVerifier.verifyKYC(user1, expires, sig1);
         assertEq(kycVerifier.nonces(user1), 1);
 
         // User2 verifies
         bytes memory sig2 = _signKYC(SIGNER_PRIVATE_KEY, user2, expires, 0);
         vm.prank(user2);
-        kycVerifier.verifyKYC(expires, sig2);
+        kycVerifier.verifyKYC(user2, expires, sig2);
         assertEq(kycVerifier.nonces(user2), 1);
 
         // User1's nonce unchanged
@@ -171,19 +171,19 @@ contract KYCVerifierTest is Test {
         // First verification (nonce 0)
         bytes memory sig1 = _signKYC(SIGNER_PRIVATE_KEY, user1, expires, 0);
         vm.prank(user1);
-        kycVerifier.verifyKYC(expires, sig1);
+        kycVerifier.verifyKYC(user1, expires, sig1);
         assertEq(kycVerifier.nonces(user1), 1);
 
         // Second verification (nonce 1)
         bytes memory sig2 = _signKYC(SIGNER_PRIVATE_KEY, user1, expires, 1);
         vm.prank(user1);
-        kycVerifier.verifyKYC(expires, sig2);
+        kycVerifier.verifyKYC(user1, expires, sig2);
         assertEq(kycVerifier.nonces(user1), 2);
 
         // Third verification (nonce 2)
         bytes memory sig3 = _signKYC(SIGNER_PRIVATE_KEY, user1, expires, 2);
         vm.prank(user1);
-        kycVerifier.verifyKYC(expires, sig3);
+        kycVerifier.verifyKYC(user1, expires, sig3);
         assertEq(kycVerifier.nonces(user1), 3);
     }
 
@@ -194,7 +194,7 @@ contract KYCVerifierTest is Test {
         bytes memory signature = _signKYC(SIGNER_PRIVATE_KEY, user1, expires, nonce);
 
         vm.prank(user1);
-        kycVerifier.verifyKYC(expires, signature);
+        kycVerifier.verifyKYC(user1, expires, signature);
 
         assertEq(kycVerifier.nonces(user1), nonce + 1);
     }
@@ -207,7 +207,7 @@ contract KYCVerifierTest is Test {
 
         vm.prank(user1);
         vm.expectRevert("KYC expired");
-        kycVerifier.verifyKYC(expires, signature);
+        kycVerifier.verifyKYC(user1, expires, signature);
     }
 
     function test_verifyKYC_RevertsInvalidSignature() public {
@@ -220,7 +220,7 @@ contract KYCVerifierTest is Test {
 
         vm.prank(user1);
         vm.expectRevert("Invalid KYC signature");
-        kycVerifier.verifyKYC(expires, signature);
+        kycVerifier.verifyKYC(user1, expires, signature);
     }
 
     function test_verifyKYC_RevertsWrongUser() public {
@@ -232,7 +232,7 @@ contract KYCVerifierTest is Test {
 
         vm.prank(user2);
         vm.expectRevert("Invalid KYC signature");
-        kycVerifier.verifyKYC(expires, signature);
+        kycVerifier.verifyKYC(user1, expires, signature);
     }
 
     function test_verifyKYC_RevertsReplayAttack() public {
@@ -243,12 +243,12 @@ contract KYCVerifierTest is Test {
 
         // First call succeeds
         vm.prank(user1);
-        kycVerifier.verifyKYC(expires, signature);
+        kycVerifier.verifyKYC(user1, expires, signature);
 
         // Replay attack should fail (nonce already incremented)
         vm.prank(user1);
         vm.expectRevert("Invalid KYC signature");
-        kycVerifier.verifyKYC(expires, signature);
+        kycVerifier.verifyKYC(user1, expires, signature);
     }
 
     function test_verifyKYC_RevertsWrongNonce() public {
@@ -259,7 +259,7 @@ contract KYCVerifierTest is Test {
 
         vm.prank(user1);
         vm.expectRevert("Invalid KYC signature");
-        kycVerifier.verifyKYC(expires, signature);
+        kycVerifier.verifyKYC(user1, expires, signature);
     }
 
     function test_verifyKYC_RevertsWrongExpires() public {
@@ -272,7 +272,7 @@ contract KYCVerifierTest is Test {
 
         vm.prank(user1);
         vm.expectRevert("Invalid KYC signature");
-        kycVerifier.verifyKYC(wrongExpires, signature);
+        kycVerifier.verifyKYC(user1, wrongExpires, signature);
     }
 
     function test_verifyKYC_WorksAfterSignerChange() public {
@@ -290,12 +290,12 @@ contract KYCVerifierTest is Test {
         bytes memory oldSig = _signKYC(SIGNER_PRIVATE_KEY, user1, expires, nonce);
         vm.prank(user1);
         vm.expectRevert("Invalid KYC signature");
-        kycVerifier.verifyKYC(expires, oldSig);
+        kycVerifier.verifyKYC(user1, expires, oldSig);
 
         // New signer's signature should work
         bytes memory newSig = _signKYC(newSignerKey, user1, expires, nonce);
         vm.prank(user1);
-        kycVerifier.verifyKYC(expires, newSig);
+        kycVerifier.verifyKYC(user1, expires, newSig);
 
         assertEq(kycVerifier.nonces(user1), 1);
     }
@@ -318,7 +318,7 @@ contract KYCVerifierTest is Test {
 
             bytes memory sig = _signKYC(SIGNER_PRIVATE_KEY, user1, expires, i);
             vm.prank(user1);
-            kycVerifier.verifyKYC(expires, sig);
+            kycVerifier.verifyKYC(user1, expires, sig);
         }
 
         assertEq(kycVerifier.nonces(user1), 5);
@@ -335,7 +335,7 @@ contract KYCVerifierTest is Test {
         bytes memory signature = _signKYC(SIGNER_PRIVATE_KEY, user1, expires, nonce);
 
         vm.prank(user1);
-        kycVerifier.verifyKYC(expires, signature);
+        kycVerifier.verifyKYC(user1, expires, signature);
 
         assertEq(kycVerifier.nonces(user1), 1);
     }
@@ -347,7 +347,7 @@ contract KYCVerifierTest is Test {
         bytes memory signature = _signKYC(SIGNER_PRIVATE_KEY, user1, expires, nonce);
 
         vm.prank(user1);
-        kycVerifier.verifyKYC(expires, signature);
+        kycVerifier.verifyKYC(user1, expires, signature);
 
         assertEq(kycVerifier.nonces(user1), 1);
     }
@@ -362,7 +362,7 @@ contract KYCVerifierTest is Test {
         vm.warp(block.timestamp + 30 minutes);
 
         vm.prank(user1);
-        kycVerifier.verifyKYC(expires, signature);
+        kycVerifier.verifyKYC(user1, expires, signature);
 
         assertEq(kycVerifier.nonces(user1), 1);
     }
@@ -378,7 +378,7 @@ contract KYCVerifierTest is Test {
 
         vm.prank(user1);
         vm.expectRevert("KYC expired");
-        kycVerifier.verifyKYC(expires, signature);
+        kycVerifier.verifyKYC(user1, expires, signature);
     }
 
     // ============================================
@@ -395,7 +395,7 @@ contract KYCVerifierTest is Test {
         bytes memory signature = _signKYC(SIGNER_PRIVATE_KEY, user, expires, nonce);
 
         vm.prank(user);
-        kycVerifier.verifyKYC(expires, signature);
+        kycVerifier.verifyKYC(user, expires, signature);
 
         assertEq(kycVerifier.nonces(user), nonce + 1);
     }
@@ -412,7 +412,7 @@ contract KYCVerifierTest is Test {
 
         vm.prank(user1);
         vm.expectRevert("Invalid KYC signature");
-        kycVerifier.verifyKYC(expires, signature);
+        kycVerifier.verifyKYC(user1, expires, signature);
     }
 
     // ============================================
@@ -430,7 +430,7 @@ contract KYCVerifierTest is Test {
         // User calls a contract function which calls verifyKYC
         // The contract must use msg.sender properly
         vm.prank(user1);
-        kycVerifier.verifyKYC(expires, signature);
+        kycVerifier.verifyKYC(user1, expires, signature);
 
         assertEq(kycVerifier.nonces(user1), 1);
     }

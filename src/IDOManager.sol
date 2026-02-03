@@ -151,7 +151,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, WithAdminM
 
         // KYC required only for investments >= kycThresholdUSD
         if (amountInUSD >= kycThresholdUSD) {
-            kycVerifier.verifyKYC(kycExpires, kycSignature);
+            kycVerifier.verifyKYC(msg.sender, kycExpires, kycSignature);
         }
 
         require(amountInUSD >= ido.info.minAllocationUSD, BelowMinAllocation());

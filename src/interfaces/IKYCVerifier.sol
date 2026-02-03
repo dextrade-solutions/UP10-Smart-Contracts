@@ -6,9 +6,10 @@ interface IKYCVerifier {
     event KYCSignerUpdated(address indexed previousSigner, address indexed newSigner);
 
     /// @notice Verify KYC signature and mark action allowed
+    /// @param user User to be validated
     /// @param expires Timestamp after which signature is invalid
     /// @param signature Signed data from KYC authority
-    function verifyKYC(uint256 expires, bytes calldata signature) external;
+    function verifyKYC(address user, uint256 expires, bytes calldata signature) external;
 
     /// @notice Get the trusted KYC signer address
     function kycSigner() external view returns (address);

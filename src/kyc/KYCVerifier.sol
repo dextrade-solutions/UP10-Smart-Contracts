@@ -36,17 +36,18 @@ contract KYCVerifier is IKYCVerifier, EIP712, Ownable {
     }
 
     /// @notice Verify KYC signature and mark action allowed
+    /// @param user User to be validated
     /// @param expires Timestamp after which signature is invalid
     /// @param signature Signed data from KYC authority
-    function verifyKYC(uint256 expires, bytes calldata signature) external {
+    function verifyKYC(address user, uint256 expires, bytes calldata signature) external {
         require(block.timestamp <= expires, "KYC expired");
 
-        uint256 nonce = nonces[msg.sender];
+        uint256 nonce = nonces[user];
 
         bytes32 structHash = keccak256(
             abi.encode(
                 KYC_TYPEHASH,
-                msg.sender,
+                user,
                 expires,
                 nonce
             )
@@ -58,8 +59,8 @@ contract KYCVerifier is IKYCVerifier, EIP712, Ownable {
         require(signer == kycSigner, "Invalid KYC signature");
 
         // Increment nonce to prevent replay
-        nonces[msg.sender]++;
+        nonces[user]++;
 
-        emit KYCVerified(msg.sender, expires);
+        emit KYCVerified(user, expires);
     }
 }
