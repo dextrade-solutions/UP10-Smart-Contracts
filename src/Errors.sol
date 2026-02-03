@@ -43,6 +43,12 @@ error NoPenaltyFees();
 /// @notice Thrown when attempting to withdraw more than available
 error InsufficientTokensAvailable();
 
+/// @notice Thrown when zero address is provided
+error ZeroAddress();
+
+/// @notice Thrown when duplicate token is provided
+error DuplicateToken();
+
 // ============================================
 // KYCRegistry Errors
 // ============================================

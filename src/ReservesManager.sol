@@ -12,35 +12,54 @@ abstract contract ReservesManager is IReservesManager, EmergencyWithdrawAdmin {
     using Math for uint256;
     using SafeERC20 for IERC20;
 
-    address public reservesAdmin;
-
-    // Stablecoin addresses
-    address public immutable USDT;
-    address public immutable USDC;
-    address public immutable FLX;
-
-    // Track stablecoins already withdrawn by reserves admin per IDO per token
-    mapping(uint256 => mapping(address => uint256)) public stablecoinsWithdrawnInToken;
+    struct TokenConfig {
+        address token;
+        uint256 price;
+    }
 
     // Track penalty fees collected per IDO per stablecoin
     mapping(uint256 => mapping(address => uint256)) public penaltyFeesCollected;
 
-    // Track unsold tokens withdrawn per IDO
-    mapping(uint256 => uint256) public unsoldTokensWithdrawn;
-
-    // Track refunded tokens withdrawn per IDO
-    mapping(uint256 => uint256) public refundedTokensWithdrawn;
-
-    // Track penalty fees withdrawn per IDO per stablecoin
-    mapping(uint256 => mapping(address => uint256)) public penaltyFeesWithdrawn;
+    mapping(address => uint256) public staticPrices;
+    mapping(address => bool) public enabledTokens;
+    address[] public SUPPORTED_TOKENS;
 
     uint32 private constant HUNDRED_PERCENT = 10_000_000;
 
-    constructor(address _usdt, address _usdc, address _flx) {
-        require(_usdt != address(0) && _usdc != address(0), InvalidTokenAddress());
+    constructor(TokenConfig[] memory tokens) {
+        uint256 len = tokens.length;
+        address[] memory supported = new address[](len);
 
-        USDT = _usdt;
-        USDC = _usdc;
-        FLX = _flx;
+        for (uint256 i; i < len; ) {
+            address token = tokens[i].token;
+
+            if (token == address(0)) revert ZeroAddress();
+            if (enabledTokens[token]) revert DuplicateToken();
+
+            staticPrices[token] = tokens[i].price;
+            enabledTokens[token] = true;
+            supported[i] = token;
+
+            unchecked { ++i; }
+        }
+
+        SUPPORTED_TOKENS = supported;
+    }
+
+    /// @inheritdoc IReservesManager
+    function isTokenSupported(address token) public view returns (bool) {
+        return enabledTokens[token];
+    }
+
+    /// @inheritdoc IReservesManager
+    function setStaticPrice(address token, uint256 price) external onlyAdmin {
+        if (!enabledTokens[token]) revert InvalidToken();
+        staticPrices[token] = price;
+        emit StaticPriceSet(token, price);
+    }
+
+    /// @inheritdoc IReservesManager
+    function getStaticPrice(address token) public view returns (uint256) {
+        return staticPrices[token];
     }
 }

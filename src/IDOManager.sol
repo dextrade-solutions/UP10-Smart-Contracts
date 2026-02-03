@@ -38,20 +38,14 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
     uint8 private constant PHASE_DIVIDER = 3;
     uint16 private constant FLX_PRIORITY_PERIOD = 2 hours;
 
-    mapping(address => uint256) public staticPrices;
-
     /// @notice KYC threshold in USD (18 decimals). Investments >= this amount require KYC verification
     uint256 public kycThresholdUSD;
 
     constructor(
-        address _usdt,
-        address _usdc,
-        address _flx,
+        TokenConfig[] memory tokens,
         address _kycVerifier,
         address _adminManager
-    ) WithAdminManager(_adminManager) ReservesManager(_usdt, _usdc, _flx) WithKYCVerifier(_kycVerifier) {
-        staticPrices[_usdt] = PRICE_DECIMALS;
-        staticPrices[_usdc] = PRICE_DECIMALS;
+    ) WithAdminManager(_adminManager) ReservesManager(tokens) WithKYCVerifier(_kycVerifier) {
         kycThresholdUSD = 100 * DECIMALS; // 100 USD default
     }
 
@@ -137,7 +131,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         uint256 kycExpires,
         bytes calldata kycSignature
     ) external nonReentrant {
-        require(tokenIn == USDT || tokenIn == USDC, InvalidToken());
+        require(isTokenSupported(tokenIn), InvalidToken());
 
         IDO storage ido = idos[idoId];
         IDOSchedules memory schedules = idoSchedules[idoId];
@@ -320,12 +314,6 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         IDO storage ido = idos[idoId];
         ido.info.tokenAddress = _address;
         emit TokenAddressSet(idoId, _address);
-    }
-
-    /// @inheritdoc IIDOManager
-    function setStaticPrice(address token, uint256 price) external onlyAdmin {
-        staticPrices[token] = price;
-        emit StaticPriceSet(token, price);
     }
 
     /// @inheritdoc IIDOManager
@@ -544,7 +532,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         address tokenIn,
         uint256 amount
     ) internal view returns (uint256 amountInUSD, uint256 normalizedTokenAmount) {
-        uint256 staticPrice = staticPrices[tokenIn];
+        uint256 staticPrice = getStaticPrice(tokenIn);
 
         require(staticPrice > 0, StaticPriceNotSet());
 
@@ -613,7 +601,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         address investedToken
     ) internal returns (uint256) {
         uint256 penaltyUsdt = fullRefundUsdt - refundedUsdt;
-        uint256 penaltyInInvestedToken = _convertFromUSDT(penaltyUsdt, staticPrices[investedToken]);
+        uint256 penaltyInInvestedToken = _convertFromUSDT(penaltyUsdt, getStaticPrice(investedToken));
         uint256 penaltyScaled = penaltyInInvestedToken.mulDiv(10 ** ERC20(token).decimals(), DECIMALS);
         penaltyFeesCollected[idoId][investedToken] += penaltyScaled;
         return penaltyUsdt;
@@ -646,7 +634,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         idoRefundInfo[idoId].totalRefundedUSDT += refundedUsdt;
         userStorage.refundedUsdt += refundedUsdt;
 
-        investedTokensToRefund = _convertFromUSDT(refundedUsdt, staticPrices[user.investedToken]);
+        investedTokensToRefund = _convertFromUSDT(refundedUsdt, getStaticPrice(user.investedToken));
         ERC20 token = ERC20(user.investedToken);
         investedTokensToRefundScaled = investedTokensToRefund.mulDiv(10 ** token.decimals(), DECIMALS);
 

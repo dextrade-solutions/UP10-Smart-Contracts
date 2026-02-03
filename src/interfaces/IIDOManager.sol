@@ -153,7 +153,6 @@ interface IIDOManager {
         address indexed investor,
         uint256 tokens
     );
-    event StaticPriceSet(address indexed token, uint256 price);
     event ClaimStartTimeSet(uint256 idoId, uint64 claimStartTime);
     event TgeTimeSet(uint256 idoId, uint64 claimStartTime);
     event IdoTimeSet(uint256 idoId, uint64 idoStartTime, uint64 idoEndTime);
@@ -200,12 +199,6 @@ interface IIDOManager {
     /// @param idoId The identifier of the IDO
     /// @param priceUsdt The TWAP price in USDT with 8 decimal precision
     function setTwapPriceUsdt(uint256 idoId, uint256 priceUsdt) external;
-
-    /// @notice Sets a static price for a stablecoin
-    /// @dev Only callable by admin. Used for USD value calculations
-    /// @param token The stablecoin address
-    /// @param price The price with 8 decimal precision
-    function setStaticPrice(address token, uint256 price) external;
 
     /// @notice Sets the claim start time for an IDO
     /// @dev Only callable by admin. Users can claim tokens after this time
