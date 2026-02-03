@@ -251,7 +251,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, WithAdminM
             pricing.initialPriceUsdt
         );
 
-        uint8 refundFlags = _calcRefundFlags(schedules, pricing, refundInfo, fullRefund);
+        uint8 refundFlags = _calcRefundFlags(schedules, pricing, fullRefund);
 
         IERC20(user.investedToken).safeTransfer(msg.sender, investedTokensToRefundScaled);
 
@@ -477,7 +477,6 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, WithAdminM
     function _calcRefundFlags(
         IDOSchedules memory schedules,
         IDOPricing memory pricing,
-        IDORefundInfo memory refundInfo,
         bool fullRefund
     ) internal view returns (uint8 currentRefundFlags) {
         bool isBeforeTge = schedules.tgeTime == 0 || block.timestamp < schedules.tgeTime;
