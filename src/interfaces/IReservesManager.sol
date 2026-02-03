@@ -7,7 +7,7 @@ interface IReservesManager {
     /// @notice Sets a static price for a token
     /// @dev Only callable by admin. Used for USD value calculations
     /// @param token The token address
-    /// @param price The price with 8 decimal precision
+    /// @param price The price
     function setStaticPrice(address token, uint256 price) external;
 
     /// @notice Checks if a token is supported
