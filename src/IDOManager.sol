@@ -12,7 +12,7 @@ import "./interfaces/IReservesManager.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./Errors.sol";
 
-contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, WithAdminManager, ReservesManager {
+contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesManager {
     using Math for uint256;
     using SafeERC20 for IERC20;
 
