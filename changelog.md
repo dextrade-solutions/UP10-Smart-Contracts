@@ -1,6 +1,13 @@
 # General
 1. Added dependency management. Fix Openzeppelin imports 
 
+# 2026-02-03
+
+## KYCVerifier
+1. Update `verifyKYC()` to accept explicit `user` parameter instead of using `msg.sender`
+2. Update `IDOManager.invest()` to pass `msg.sender` as user to `kycVerifier.verifyKYC()`
+3. Update all KYCVerifier unit tests to include the new `user` parameter
+
 # 2026-01-28
 
 ## Configurable KYC Threshold
