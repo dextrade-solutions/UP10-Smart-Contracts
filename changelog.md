@@ -11,6 +11,7 @@
 
 ## IDOManager
 1. Update `_calcRefundFlags()` to remove unused variable
+2. Removed `WithAdminManager` duplicated inheritance from IDOManager
 
 # 2026-01-28
 
