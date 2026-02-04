@@ -1,6 +1,12 @@
 # General
 1. Added dependency management. Fix Openzeppelin imports 
 
+# 2026-02-04
+
+## KYCVerifier
+1. Now KYC Verification requires caller verification
+
+
 # 2026-02-03
 
 ## KYCVerifier
