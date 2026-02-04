@@ -14,11 +14,17 @@ interface IKYCVerifier {
     /// @notice Get the trusted KYC signer address
     function kycSigner() external view returns (address);
 
-    /// @notice Get the nonce for a user
+    /// @notice Get the nonce for a (user, caller) pair
     /// @param user The address of the user
-    function nonces(address user) external view returns (uint256);
+    /// @param caller The authorized caller consuming the proof
+    function nonces(address user, address caller) external view returns (uint256);
 
     /// @notice Update the trusted KYC signer
     /// @param _kycSigner New signer address
     function setKYCSigner(address _kycSigner) external;
+
+
+    error InvalidSigner();
+    error KYCExpired();
+    error InvalidKYCSignature();
 }

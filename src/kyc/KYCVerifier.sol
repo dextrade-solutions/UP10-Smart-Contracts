@@ -12,22 +12,22 @@ contract KYCVerifier is IKYCVerifier, EIP712, Ownable {
     // Trusted KYC signer
     address public kycSigner;
 
-    // Nonce per user to prevent replay
-    mapping(address => uint256) public nonces;
+    // Nonce per (user, caller) to prevent replay and to avoid mempool griefing across callers
+    mapping(address => mapping(address => uint256)) public nonces;
 
     // EIP-712 typehash for KYC
     bytes32 private constant KYC_TYPEHASH =
-        keccak256("KYC(address user,uint256 expires,uint256 nonce)");
+        keccak256("KYC(address user,address caller,uint256 expires,uint256 nonce)");
 
     constructor(address _kycSigner) EIP712("KYCVerifier", "1.0") Ownable(msg.sender) {
-        require(_kycSigner != address(0), "Invalid signer");
+        if (_kycSigner == address(0)) revert InvalidSigner();
         kycSigner = _kycSigner;
     }
 
     /// @notice Update the trusted KYC signer
     /// @param _kycSigner New signer address
     function setKYCSigner(address _kycSigner) external onlyOwner {
-        require(_kycSigner != address(0), "Invalid signer");
+        if (_kycSigner == address(0)) revert InvalidSigner();
 
         address previousSigner = kycSigner;
         kycSigner = _kycSigner;
@@ -40,14 +40,17 @@ contract KYCVerifier is IKYCVerifier, EIP712, Ownable {
     /// @param expires Timestamp after which signature is invalid
     /// @param signature Signed data from KYC authority
     function verifyKYC(address user, uint256 expires, bytes calldata signature) external {
-        require(block.timestamp <= expires, "KYC expired");
+        if (block.timestamp > expires) revert KYCExpired();
 
-        uint256 nonce = nonces[user];
+        address caller = msg.sender;
+
+        uint256 nonce = nonces[user][caller];
 
         bytes32 structHash = keccak256(
             abi.encode(
                 KYC_TYPEHASH,
                 user,
+                caller,
                 expires,
                 nonce
             )
@@ -56,10 +59,10 @@ contract KYCVerifier is IKYCVerifier, EIP712, Ownable {
         bytes32 digest = _hashTypedDataV4(structHash);
         address signer = ECDSA.recover(digest, signature);
 
-        require(signer == kycSigner, "Invalid KYC signature");
+        if (signer != kycSigner) revert InvalidKYCSignature();
 
         // Increment nonce to prevent replay
-        nonces[user]++;
+        nonces[user][caller]++;
 
         emit KYCVerified(user, expires);
     }
