@@ -722,7 +722,10 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         UserInfo memory user, 
         bool fullRefund
     ) internal view returns (bool) {
-        
+
+        if (!refundInfo.refundPolicy.isRefundIfClaimedAllowed && user.claimed) {
+            return false;
+        }
         if (!_isTGEStarted(schedules)) {
             return _isRefundBeforeTGEAllowed(fullRefund, refundInfo);
         }
@@ -736,9 +739,6 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         }
         if (_isCliffFinished(schedules)) {
             return _isRefundInVestingAllowed(fullRefund, refundInfo);
-        }
-        if (!refundInfo.refundPolicy.isRefundIfClaimedAllowed && user.claimed) {
-            return false;
         }
 
         return true;
