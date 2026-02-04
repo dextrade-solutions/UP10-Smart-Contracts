@@ -9,12 +9,12 @@ abstract contract EmergencyWithdrawAdmin is WithAdminManager {
     using SafeERC20 for IERC20;
 
     modifier onlyEmergencyWithdrawAdmin() {
-        require(adminManager.isSuperAdminAddress(msg.sender), "Only emergency withdraw admin");
+        if (!adminManager.isSuperAdminAddress(msg.sender)) revert CallerNotSuperAdmin();
         _;
     }
 
     function emergencyWithdraw(address _token, uint256 _amount) external onlyEmergencyWithdrawAdmin {
-        require(_amount > 0, "Invalid amount");
+        if (_amount == 0) revert InvalidAmount();
 
         if (_token != address(0)) {
             IERC20(_token).safeTransfer(msg.sender, _amount);

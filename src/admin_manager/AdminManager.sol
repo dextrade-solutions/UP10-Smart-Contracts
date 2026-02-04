@@ -43,7 +43,7 @@ contract AdminManager is IAdminManager, Ownable {
 
     /// @inheritdoc IAdminManager
     function setSuperAdmin(address _newSuperAdmin) external onlyOwner {
-        require(_newSuperAdmin != address(0), "Super admin cannot be zero address");
+        if (_newSuperAdmin == address(0)) revert InvalidZeroAddress();
         address previous = superAdmin;
         _setSuperAdmin(_newSuperAdmin);
         emit SuperAdminChanged(previous, _newSuperAdmin);

@@ -3,7 +3,8 @@ pragma solidity 0.8.30;
 
 import {Test, console} from "forge-std/Test.sol";
 import {IDOManager} from "../../src/IDOManager.sol";
-import {KYCRegistry} from "../../src/kyc/KYCRegistry.sol";
+import {KYCVerifier} from "../../src/kyc/KYCVerifier.sol";
+import {IKYCVerifier} from "../../src/interfaces/IKYCVerifier.sol";
 import {AdminManager} from "../../src/admin_manager/AdminManager.sol";
 import {IIDOManager} from "../../src/interfaces/IIDOManager.sol";
 import {ReservesManager} from "../../src/ReservesManager.sol";
@@ -33,8 +34,11 @@ contract MockERC20 is ERC20 {
 
 contract EdgeCasesComplexScenariosTest is Test {
     IDOManager public idoManager;
-    KYCRegistry public kycRegistry;
+    KYCVerifier public kycVerifier;
     AdminManager public adminManager;
+
+    uint256 public constant SIGNER_PRIVATE_KEY = 0xA11CE;
+    address public signer;
 
     MockERC20 public usdt;
     MockERC20 public usdc;
@@ -53,8 +57,12 @@ contract EdgeCasesComplexScenariosTest is Test {
     address public userNoKYC = makeAddr("userNoKYC");
 
     uint32 constant HUNDRED_PERCENT = 10_000_000;
+    uint256 internal constant KYC_EXPIRES = 0;
+    bytes internal constant KYC_SIG = hex"";
 
     function setUp() public {
+        signer = vm.addr(SIGNER_PRIVATE_KEY);
+
         // Deploy mock tokens
         usdt = new MockERC20("USDT", "USDT", 6);
         usdc = new MockERC20("USDC", "USDC", 6);
@@ -62,35 +70,48 @@ contract EdgeCasesComplexScenariosTest is Test {
         idoToken1 = new MockERC20("IDO Token 1", "IDO1", 18);
         idoToken2 = new MockERC20("IDO Token 2", "IDO2", 6); // Different decimals
 
-        // Deploy KYC registry
-        kycRegistry = new KYCRegistry(owner);
+        // Deploy KYC verifier (signature-based).
+        kycVerifier = new KYCVerifier(signer);
 
         // Deploy admin manager
         adminManager = new AdminManager(owner, admin, owner);
 
         // Deploy IDO manager
-        idoManager = new IDOManager(
-            address(usdt),
-            address(usdc),
-            address(flx),
-            address(kycRegistry),
-            reservesAdmin,
-            address(adminManager)
-        );
+        ReservesManager.TokenConfig[] memory tokens = new ReservesManager.TokenConfig[](3);
+        tokens[0] = ReservesManager.TokenConfig({token: address(usdt), price: 1e8});
+        tokens[1] = ReservesManager.TokenConfig({token: address(usdc), price: 1e8});
+        tokens[2] = ReservesManager.TokenConfig({token: address(flx), price: 1e8});
 
-        // Setup: Verify users for KYC (but not userNoKYC)
-        kycRegistry.verify(user1);
-        kycRegistry.verify(user2);
-        kycRegistry.verify(user3);
-        kycRegistry.verify(user4);
-        kycRegistry.verify(user5);
+        idoManager = new IDOManager(tokens, address(kycVerifier), address(adminManager));
 
         // Setup: Set static prices for stablecoins (8 decimals precision)
         vm.startPrank(admin);
+        idoManager.setKYCThresholdUSD(type(uint256).max);
         idoManager.setStaticPrice(address(usdt), 1e8); // $1.00
         idoManager.setStaticPrice(address(usdc), 1e8); // $1.00
         idoManager.setStaticPrice(address(flx), 1e8);  // $1.00
         vm.stopPrank();
+    }
+
+    function _signKYC(
+        address user,
+        uint256 expires
+    ) internal view returns (bytes memory) {
+        uint256 nonce = kycVerifier.nonces(user, address(idoManager));
+        bytes32 typehash = keccak256("KYC(address user,address caller,uint256 expires,uint256 nonce)");
+        bytes32 structHash = keccak256(abi.encode(typehash, user, address(idoManager), expires, nonce));
+        bytes32 domainSeparator = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(bytes("KYCVerifier")),
+                keccak256(bytes("1.0")),
+                block.chainid,
+                address(kycVerifier)
+            )
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_PRIVATE_KEY, digest);
+        return abi.encodePacked(r, s, v);
     }
 
     function _createIDO(uint64 startTime, uint64 endTime, uint256 totalAllocation) internal returns (uint256) {
@@ -158,7 +179,7 @@ contract EdgeCasesComplexScenariosTest is Test {
     ) internal {
         _mintAndApprove(user, token, amount);
         vm.prank(user);
-        idoManager.invest(idoId, amount, token);
+        idoManager.invest(idoId, amount, token, KYC_EXPIRES, KYC_SIG);
     }
 
     function _setupIDO(uint256 idoId, address tokenAddress) internal {
@@ -240,25 +261,14 @@ contract EdgeCasesComplexScenariosTest is Test {
         vm.prank(user3);
         idoManager.claimTokens(idoId2);
 
-        // 9. Reserves admin withdraws from both IDOs independently
-        uint256 ido1Withdrawable = idoManager.getWithdrawableAmount(idoId1, address(usdt));
-        if (ido1Withdrawable > 0) {
-            vm.prank(reservesAdmin);
-            idoManager.withdrawStablecoins(idoId1, address(usdt), ido1Withdrawable);
-        }
-
-        uint256 ido2Withdrawable = idoManager.getWithdrawableAmount(idoId2, address(usdt));
-        if (ido2Withdrawable > 0) {
-            vm.prank(reservesAdmin);
-            idoManager.withdrawStablecoins(idoId2, address(usdt), ido2Withdrawable);
-        }
+        // 9. Reserves: withdrawal flows were removed; this test focuses on independent IDO state progression.
 
         // Verify lifecycle completion for both IDOs
         assertTrue(true, "Multiple concurrent IDOs completed successfully");
     }
 
-    /// @dev Tests KYC requirement enforcement
-    /// Covers: KYC checks during investment, unverified user rejection
+    /// @dev Tests signature-based KYC requirement enforcement
+    /// Covers: KYCVerifier proof checks during investment, missing/invalid proof rejection
     function test_integration_KYCRequirement() public {
         // 1. Create and setup IDO
         uint64 startTime = uint64(block.timestamp + 1 days);
@@ -269,37 +279,33 @@ contract EdgeCasesComplexScenariosTest is Test {
         // 2. Advance to IDO start
         vm.warp(vm.getBlockTimestamp() + 1 days);
 
-        // 3. Verified user can invest
-        _investUser(user1, idoId, 1000e6, address(usdt));
+        // 3. Enable KYC and provide a valid proof: user can invest
+        vm.prank(admin);
+        idoManager.setKYCThresholdUSD(0);
+
+        _mintAndApprove(user1, address(usdt), 1000e6);
+        uint256 expires1 = block.timestamp + 1 hours;
+        bytes memory sig1 = _signKYC(user1, expires1);
+        vm.prank(user1);
+        idoManager.invest(idoId, 1000e6, address(usdt), expires1, sig1);
         (, uint256 user1Allocated, , , ) = idoManager.getUserInfo(idoId, user1);
         assertGt(user1Allocated, 0);
 
-        // 4. Unverified user cannot invest (should revert)
+        // 4. Missing/invalid proof => revert
         _mintAndApprove(userNoKYC, address(usdt), 1000e6);
-        vm.expectRevert();
+        uint256 expiresBad = block.timestamp + 1 hours;
+        bytes memory badSig = _signKYC(user1, expiresBad); // wrong user in payload
+        vm.expectRevert(IKYCVerifier.InvalidKYCSignature.selector);
         vm.prank(userNoKYC);
-        idoManager.invest(idoId, 1000e6, address(usdt));
+        idoManager.invest(idoId, 1000e6, address(usdt), expiresBad, badSig);
 
-        // 5. Verify user, then they can invest
-        kycRegistry.verify(userNoKYC);
-        _investUser(userNoKYC, idoId, 1000e6, address(usdt));
+        // 5. With a valid proof => user can invest
+        uint256 expires2 = block.timestamp + 1 hours;
+        bytes memory sig2 = _signKYC(userNoKYC, expires2);
+        vm.prank(userNoKYC);
+        idoManager.invest(idoId, 1000e6, address(usdt), expires2, sig2);
         (, uint256 userNoKYCAllocated, , , ) = idoManager.getUserInfo(idoId, userNoKYC);
         assertGt(userNoKYCAllocated, 0);
-
-        // 6. Unverify user
-        kycRegistry.revoke(userNoKYC);
-
-        // User can still claim (KYC only required for investment)
-        vm.warp(vm.getBlockTimestamp() + 10 days);
-        vm.prank(userNoKYC);
-        idoManager.claimTokens(idoId);
-
-        // But cannot invest again
-        vm.warp(vm.getBlockTimestamp() - 9 days); // Go back before IDO end
-        _mintAndApprove(userNoKYC, address(usdt), 500e6);
-        vm.expectRevert();
-        vm.prank(userNoKYC);
-        idoManager.invest(idoId, 500e6, address(usdt));
     }
 
     /// @dev Tests investment limits (min and max allocations)
@@ -319,7 +325,7 @@ contract EdgeCasesComplexScenariosTest is Test {
         _mintAndApprove(user1, address(usdt), belowMin);
         vm.expectRevert();
         vm.prank(user1);
-        idoManager.invest(idoId, belowMin, address(usdt));
+        idoManager.invest(idoId, belowMin, address(usdt), KYC_EXPIRES, KYC_SIG);
 
         // 4. Invest at minimum (should succeed)
         uint256 atMin = 100e6; // $100
@@ -331,7 +337,7 @@ contract EdgeCasesComplexScenariosTest is Test {
         _mintAndApprove(user1, address(usdt), atMin);
         vm.expectRevert();
         vm.prank(user1);
-        idoManager.invest(idoId, atMin, address(usdt));
+        idoManager.invest(idoId, atMin, address(usdt), KYC_EXPIRES, KYC_SIG);
 
         // 6. Different user invests at maximum
         // Max is 10000e18 worth of tokens (totalAllocationByUser)
@@ -347,9 +353,9 @@ contract EdgeCasesComplexScenariosTest is Test {
         assertGt(user3Allocated, 0);
     }
 
-    /// @dev Tests that FLX is not supported for investment (only USDT/USDC)
+    /// @dev Tests that configured tokens are supported for investment (including 18-decimal tokens like FLX)
     /// Covers: Token validation in invest function
-    function test_integration_FLXNotSupportedForInvestment() public {
+    function test_integration_FLXSupportedForInvestment() public {
         // 1. Create and setup IDO
         uint64 startTime = uint64(block.timestamp + 1 days);
         uint64 endTime = uint64(block.timestamp + 8 days);
@@ -359,11 +365,13 @@ contract EdgeCasesComplexScenariosTest is Test {
         // 2. Advance to IDO start
         vm.warp(startTime);
 
-        // 3. FLX investment should NOT work (only USDT/USDC supported)
+        // 3. FLX investment should work (token support is defined by ReservesManager.TokenConfig[])
         _mintAndApprove(user1, address(flx), 1000e18);
         vm.prank(user1);
-        vm.expectRevert(abi.encodeWithSignature("InvalidToken()"));
-        idoManager.invest(idoId, 1000e18, address(flx));
+        idoManager.invest(idoId, 1000e18, address(flx), KYC_EXPIRES, KYC_SIG);
+
+        (, uint256 user1Allocated, , , ) = idoManager.getUserInfo(idoId, user1);
+        assertGt(user1Allocated, 0);
 
         // 4. USDT investment should work
         _investUser(user2, idoId, 750e6, address(usdt));

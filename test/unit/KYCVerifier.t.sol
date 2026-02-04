@@ -3,6 +3,7 @@ pragma solidity 0.8.30;
 
 import {Test, console} from "forge-std/Test.sol";
 import {KYCVerifier} from "../../src/kyc/KYCVerifier.sol";
+import {IKYCVerifier} from "../../src/interfaces/IKYCVerifier.sol";
 
 contract KYCVerifierTest is Test {
     KYCVerifier public kycVerifier;
@@ -87,7 +88,7 @@ contract KYCVerifierTest is Test {
     }
 
     function test_constructor_RevertsWithZeroAddress() public {
-        vm.expectRevert(KYCVerifier.InvalidSigner.selector);
+        vm.expectRevert(IKYCVerifier.InvalidSigner.selector);
         new KYCVerifier(address(0));
     }
 
@@ -115,7 +116,7 @@ contract KYCVerifierTest is Test {
     }
 
     function test_setKYCSigner_RevertsWithZeroAddress() public {
-        vm.expectRevert(KYCVerifier.InvalidSigner.selector);
+        vm.expectRevert(IKYCVerifier.InvalidSigner.selector);
         kycVerifier.setKYCSigner(address(0));
     }
 
@@ -197,7 +198,7 @@ contract KYCVerifierTest is Test {
         bytes memory signature = _signKYC(SIGNER_PRIVATE_KEY, user1, expires, nonce);
 
         vm.prank(user1);
-        vm.expectRevert(KYCVerifier.KYCExpired.selector);
+        vm.expectRevert(IKYCVerifier.KYCExpired.selector);
         kycVerifier.verifyKYC(user1, expires, signature);
     }
 
@@ -210,7 +211,7 @@ contract KYCVerifierTest is Test {
         bytes memory signature = _signKYC(wrongKey, user1, expires, nonce);
 
         vm.prank(user1);
-        vm.expectRevert(KYCVerifier.InvalidKYCSignature.selector);
+        vm.expectRevert(IKYCVerifier.InvalidKYCSignature.selector);
         kycVerifier.verifyKYC(user1, expires, signature);
     }
 
@@ -222,7 +223,7 @@ contract KYCVerifierTest is Test {
         bytes memory signature = _signKYC(SIGNER_PRIVATE_KEY, user1, expires, nonce);
 
         vm.prank(user2);
-        vm.expectRevert(KYCVerifier.InvalidKYCSignature.selector);
+        vm.expectRevert(IKYCVerifier.InvalidKYCSignature.selector);
         kycVerifier.verifyKYC(user1, expires, signature);
     }
 
@@ -238,7 +239,7 @@ contract KYCVerifierTest is Test {
 
         // Replay attack should fail (nonce already incremented)
         vm.prank(user1);
-        vm.expectRevert(KYCVerifier.InvalidKYCSignature.selector);
+        vm.expectRevert(IKYCVerifier.InvalidKYCSignature.selector);
         kycVerifier.verifyKYC(user1, expires, signature);
     }
 
@@ -249,7 +250,7 @@ contract KYCVerifierTest is Test {
         bytes memory signature = _signKYC(SIGNER_PRIVATE_KEY, user1, expires, 1);
 
         vm.prank(user1);
-        vm.expectRevert(KYCVerifier.InvalidKYCSignature.selector);
+        vm.expectRevert(IKYCVerifier.InvalidKYCSignature.selector);
         kycVerifier.verifyKYC(user1, expires, signature);
     }
 
@@ -262,7 +263,7 @@ contract KYCVerifierTest is Test {
         bytes memory signature = _signKYC(SIGNER_PRIVATE_KEY, user1, correctExpires, nonce);
 
         vm.prank(user1);
-        vm.expectRevert(KYCVerifier.InvalidKYCSignature.selector);
+        vm.expectRevert(IKYCVerifier.InvalidKYCSignature.selector);
         kycVerifier.verifyKYC(user1, wrongExpires, signature);
     }
 
@@ -280,7 +281,7 @@ contract KYCVerifierTest is Test {
         // Old signer's signature should fail
         bytes memory oldSig = _signKYC(SIGNER_PRIVATE_KEY, user1, expires, nonce);
         vm.prank(user1);
-        vm.expectRevert(KYCVerifier.InvalidKYCSignature.selector);
+        vm.expectRevert(IKYCVerifier.InvalidKYCSignature.selector);
         kycVerifier.verifyKYC(user1, expires, oldSig);
 
         // New signer's signature should work
@@ -336,7 +337,7 @@ contract KYCVerifierTest is Test {
         vm.warp(block.timestamp + 2 hours);
 
         vm.prank(user1);
-        vm.expectRevert(KYCVerifier.KYCExpired.selector);
+        vm.expectRevert(IKYCVerifier.KYCExpired.selector);
         kycVerifier.verifyKYC(user1, expires, signature);
     }
 
@@ -368,7 +369,7 @@ contract KYCVerifierTest is Test {
         bytes memory signature = _signKYC(wrongKey, user1, expires, nonce);
 
         vm.prank(user1);
-        vm.expectRevert(KYCVerifier.InvalidKYCSignature.selector);
+        vm.expectRevert(IKYCVerifier.InvalidKYCSignature.selector);
         kycVerifier.verifyKYC(user1, expires, signature);
     }
 

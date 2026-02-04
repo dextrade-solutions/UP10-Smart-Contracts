@@ -6,6 +6,17 @@
 ## KYCVerifier
 1. Now KYC Verification requires caller verification
 
+## ReservesManager / EmergencyWithdraw
+1. Add unit tests for `ReservesManager` constructor validation, supported tokens/prices, and `setStaticPrice` access control
+2. Add unit tests for `EmergencyWithdrawAdmin.emergencyWithdraw` (ERC20 + native ETH), including permissions and zero-amount revert
+
+## AdminManager / EmergencyWithdrawAdmin
+1. Replace string-based `require()` messages with custom errors from `Errors.sol` (`InvalidZeroAddress`, `CallerNotSuperAdmin`, `InvalidAmount`)
+
+## Tests
+1. Remove legacy `KYCRegistry` usage and migrate tests to signature-based `KYCVerifier` flow
+2. Remove outdated integration tests depending on removed reserves-withdrawal APIs
+
 
 # 2026-02-03
 
