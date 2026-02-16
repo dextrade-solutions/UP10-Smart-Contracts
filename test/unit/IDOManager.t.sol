@@ -48,6 +48,7 @@ contract IDOManagerTest is Test {
 
     uint256 internal constant KYC_EXPIRES = 0;
     bytes internal constant KYC_SIG = hex"";
+    uint256 internal constant HUNDRED_PERCENT = 10_000_000;
 
     function setUp() public {
         signer = vm.addr(SIGNER_PRIVATE_KEY);
@@ -129,6 +130,75 @@ contract IDOManagerTest is Test {
         MockERC20(token).mint(userAddr, amount);
         vm.prank(userAddr);
         IERC20(token).approve(address(idoManager), amount);
+    }
+
+    function _createTWAPRefundIDO(uint64 startTime, uint64 endTime) internal returns (uint256) {
+        IIDOManager.IDOInput memory idoInput = IIDOManager.IDOInput({
+            info: IIDOManager.IDOInfo({
+                tokenAddress: address(0),
+                projectId: 2,
+                totalAllocated: 0,
+                minAllocationUSD: 100e18,
+                totalAllocationByUser: 10000e18,
+                totalAllocation: 1000000e18
+            }),
+            bonuses: IIDOManager.IDOBonuses({
+                phase1BonusPercent: 0,
+                phase2BonusPercent: 0,
+                phase3BonusPercent: 0
+            }),
+            schedules: IIDOManager.IDOSchedules({
+                idoStartTime: startTime,
+                idoEndTime: endTime,
+                claimStartTime: 0,
+                tgeTime: 0,
+                cliffDuration: 0,
+                vestingDuration: 30 days,
+                unlockInterval: 1 days,
+                twapCalculationWindowHours: 24,
+                timeoutForRefundAfterVesting: 90 days,
+                tgeUnlockPercent: 3_000_000 // 30%
+            }),
+            refundPenalties: IIDOManager.RefundPenalties({
+                fullRefundPenalty: 500_000, // 5%
+                fullRefundPenaltyBeforeTge: 200_000,
+                refundPenalty: 1_000_000
+            }),
+            refundPolicy: IIDOManager.RefundPolicy({
+                fullRefundDuration: 7 days,
+                isRefundIfClaimedAllowed: true,
+                isRefundUnlockedPartOnly: false,
+                isRefundInCliffAllowed: true,
+                isFullRefundBeforeTGEAllowed: true,
+                isPartialRefundInCliffAllowed: true,
+                isFullRefundInCliffAllowed: true,
+                isPartialRefundInVestingAllowed: true,
+                isFullRefundInVestingAllowed: true
+            }),
+            initialPriceUsdt: 1e8,
+            fullRefundPriceUsdt: 7e7 // $0.70
+        });
+
+        vm.prank(admin);
+        return idoManager.createIDO(idoInput);
+    }
+
+    function _setupTWAPScenario() internal returns (uint256 idoId, uint64 tgeTime) {
+        uint64 startTime = uint64(block.timestamp + 1 days);
+        idoId = _createTWAPRefundIDO(startTime, uint64(startTime + 10 days));
+
+        _mintAndApprove(user, address(usdt), 1000e6);
+        vm.warp(startTime);
+        vm.prank(user);
+        idoManager.invest(idoId, 1000e6, address(usdt), KYC_EXPIRES, KYC_SIG);
+
+        tgeTime = uint64(startTime + 2 days);
+        vm.startPrank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+        idoToken.mint(address(idoManager), 1000000e18);
     }
 
     function _signKYC(address userAddr, uint256 expires) internal view returns (bytes memory) {
@@ -235,6 +305,292 @@ contract IDOManagerTest is Test {
 
         // 10% unlocked at TGE of 100 tokens
         assertEq(balAfter - balBefore, 10e18);
+    }
+
+    function test_refund_C2_FailedListing_NoActions_GetsNoPenaltyFullRefund() public {
+        uint64 startTime = uint64(block.timestamp + 1 days);
+        uint256 idoId = _createTWAPRefundIDO(startTime, uint64(startTime + 10 days));
+
+        _mintAndApprove(user, address(usdt), 1000e6);
+        vm.warp(startTime);
+        vm.prank(user);
+        idoManager.invest(idoId, 1000e6, address(usdt), KYC_EXPIRES, KYC_SIG);
+
+        uint64 tgeTime = uint64(startTime + 2 days);
+        vm.startPrank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(uint256(tgeTime) + 24 hours);
+        vm.prank(admin);
+        idoManager.setTwapPriceUsdt(idoId, 6e7); // Failed listing: <= $0.70
+
+        (uint256 amount, uint256 percent) = idoManager.getTokensAvailableToRefundWithPenalty(idoId, user, true);
+        assertGt(amount, 0);
+        assertEq(percent, HUNDRED_PERCENT);
+        assertTrue(idoManager.isRefundAvailable(idoId, true));
+    }
+
+    function test_refund_C1_FailedListing_ClaimInTWAPWindow_DisablesNoPenaltyOnly() public {
+        uint64 startTime = uint64(block.timestamp + 1 days);
+        uint256 idoId = _createTWAPRefundIDO(startTime, uint64(startTime + 10 days));
+
+        _mintAndApprove(user, address(usdt), 1000e6);
+        vm.warp(startTime);
+        vm.prank(user);
+        idoManager.invest(idoId, 1000e6, address(usdt), KYC_EXPIRES, KYC_SIG);
+
+        uint64 tgeTime = uint64(startTime + 2 days);
+        vm.startPrank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(uint256(tgeTime) + 1 hours);
+        vm.prank(user);
+        idoManager.claimTokens(idoId);
+
+        vm.warp(uint256(tgeTime) + 24 hours);
+        vm.prank(admin);
+        idoManager.setTwapPriceUsdt(idoId, 6e7); // Failed listing
+
+        (uint256 amount, uint256 percent) = idoManager.getTokensAvailableToRefundWithPenalty(idoId, user, true);
+        assertGt(amount, 0);
+        assertEq(percent, HUNDRED_PERCENT - 500_000);
+        assertTrue(idoManager.isRefundAvailable(idoId, true));
+    }
+
+    function test_refund_C3_SuccessListing_NoNoPenaltyRefund() public {
+        uint64 startTime = uint64(block.timestamp + 1 days);
+        uint256 idoId = _createTWAPRefundIDO(startTime, uint64(startTime + 10 days));
+
+        _mintAndApprove(user, address(usdt), 1000e6);
+        vm.warp(startTime);
+        vm.prank(user);
+        idoManager.invest(idoId, 1000e6, address(usdt), KYC_EXPIRES, KYC_SIG);
+
+        uint64 tgeTime = uint64(startTime + 2 days);
+        vm.startPrank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(uint256(tgeTime) + 24 hours);
+        vm.prank(admin);
+        idoManager.setTwapPriceUsdt(idoId, 8e7); // Successful listing: > $0.70
+
+        (uint256 amount, uint256 percent) = idoManager.getTokensAvailableToRefundWithPenalty(idoId, user, true);
+        assertGt(amount, 0);
+        assertEq(percent, HUNDRED_PERCENT - 500_000);
+        assertTrue(idoManager.isRefundAvailable(idoId, true));
+    }
+
+    function test_refund_TWAPWindowBoundary_ExactEndDoesNotDisqualify() public {
+        address user2 = makeAddr("user2");
+        uint64 startTime = uint64(block.timestamp + 1 days);
+        uint256 idoId = _createTWAPRefundIDO(startTime, uint64(startTime + 10 days));
+
+        _mintAndApprove(user, address(usdt), 1000e6);
+        _mintAndApprove(user2, address(usdt), 1000e6);
+        vm.warp(startTime);
+        vm.prank(user);
+        idoManager.invest(idoId, 1000e6, address(usdt), KYC_EXPIRES, KYC_SIG);
+        vm.prank(user2);
+        idoManager.invest(idoId, 1000e6, address(usdt), KYC_EXPIRES, KYC_SIG);
+
+        uint64 tgeTime = uint64(startTime + 2 days);
+        vm.startPrank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+        idoToken.mint(address(idoManager), 1000000e18);
+
+        vm.warp(uint256(tgeTime) + 24 hours - 1);
+        vm.prank(user);
+        idoManager.claimTokens(idoId);
+
+        vm.warp(uint256(tgeTime) + 24 hours);
+        vm.prank(user2);
+        idoManager.claimTokens(idoId);
+
+        vm.prank(admin);
+        idoManager.setTwapPriceUsdt(idoId, 6e7); // Failed listing
+
+        (, uint256 percentUser1) = idoManager.getTokensAvailableToRefundWithPenalty(idoId, user, true);
+        (, uint256 percentUser2) = idoManager.getTokensAvailableToRefundWithPenalty(idoId, user2, true);
+
+        assertEq(percentUser1, HUNDRED_PERCENT - 500_000);
+        assertEq(percentUser2, HUNDRED_PERCENT);
+    }
+
+    /// @notice C1: Partial refund during TWAP window also disqualifies from no-penalty full refund
+    function test_refund_C1_RefundDuringTWAPWindow_DisablesNoPenaltyFullRefund() public {
+        (uint256 idoId, uint64 tgeTime) = _setupTWAPScenario();
+
+        // Do partial refund during TWAP window (1 hour after TGE)
+        vm.warp(uint256(tgeTime) + 1 hours);
+        vm.prank(user);
+        idoManager.processRefund(idoId, false);
+
+        // Verify disqualified from no-penalty full refund
+        assertTrue(idoManager.twapNoPenaltyFullRefundDisqualified(idoId, user));
+
+        // Move past TWAP window, set failed TWAP price
+        vm.warp(uint256(tgeTime) + 24 hours);
+        vm.prank(admin);
+        idoManager.setTwapPriceUsdt(idoId, 6e7); // $0.60 < $0.70 threshold
+
+        // Full refund should be available but WITH penalty (5%)
+        (uint256 amount, uint256 percent) = idoManager.getTokensAvailableToRefundWithPenalty(idoId, user, true);
+        assertGt(amount, 0);
+        assertEq(percent, HUNDRED_PERCENT - 500_000);
+    }
+
+    /// @notice C2: Execute no-penalty full refund after failed listing and verify 100% USDT returned
+    function test_refund_C2_ExecuteNoPenaltyFullRefund_VerifyBalances() public {
+        (uint256 idoId, uint64 tgeTime) = _setupTWAPScenario();
+
+        // Move past TWAP window, set failed TWAP price
+        vm.warp(uint256(tgeTime) + 24 hours);
+        vm.prank(admin);
+        idoManager.setTwapPriceUsdt(idoId, 6e7); // $0.60 failed listing
+
+        // Verify 100% refund percentage
+        (uint256 tokensToRefund, uint256 percent) = idoManager.getTokensAvailableToRefundWithPenalty(idoId, user, true);
+        assertEq(tokensToRefund, 1000e18); // all 1000 tokens
+        assertEq(percent, HUNDRED_PERCENT); // no penalty
+
+        // Execute full refund and check balances
+        uint256 balBefore = usdt.balanceOf(user);
+        vm.prank(user);
+        idoManager.processRefund(idoId, true);
+        uint256 balAfter = usdt.balanceOf(user);
+
+        // 100% of invested 1000 USDT returned (no penalty)
+        assertEq(balAfter - balBefore, 1000e6);
+    }
+
+    /// @notice C2: Partial refund during TWAP Full Refund Duration still carries penalty
+    function test_refund_C2_PartialRefundDuringFullRefundDuration_HasPenalty() public {
+        (uint256 idoId, uint64 tgeTime) = _setupTWAPScenario();
+
+        // Move past TWAP window, set failed TWAP price
+        vm.warp(uint256(tgeTime) + 24 hours);
+        vm.prank(admin);
+        idoManager.setTwapPriceUsdt(idoId, 6e7);
+
+        // Partial refund always has penalty (10%) even during TWAP Full Refund Duration
+        (uint256 amount, uint256 percent) = idoManager.getTokensAvailableToRefundWithPenalty(idoId, user, false);
+        assertGt(amount, 0);
+        assertEq(percent, HUNDRED_PERCENT - 1_000_000); // 10% partial refund penalty
+
+        // Execute partial refund and verify penalty applied
+        uint256 balBefore = usdt.balanceOf(user);
+        vm.prank(user);
+        idoManager.processRefund(idoId, false);
+        uint256 balAfter = usdt.balanceOf(user);
+
+        // Partial refund: only unlocked portion (30% TGE + some vesting) with 10% penalty
+        assertGt(balAfter - balBefore, 0);
+        // The refund amount should be less than the full unlocked value (due to 10% penalty)
+        uint256 fullUnlockedValue = amount * 1e6 / 1e18; // convert from 18 to 6 decimals
+        assertLt(balAfter - balBefore, fullUnlockedValue);
+    }
+
+    /// @notice C2: After TWAP Full Refund Duration expires, full refund reverts to penalty
+    function test_refund_C2_AfterFullRefundDuration_FullRefundHasPenalty() public {
+        (uint256 idoId, uint64 tgeTime) = _setupTWAPScenario();
+
+        // Set failed TWAP
+        vm.warp(uint256(tgeTime) + 24 hours);
+        vm.prank(admin);
+        idoManager.setTwapPriceUsdt(idoId, 6e7);
+
+        // Move past Full Refund Duration (TWAP window 24h + full refund duration 7d)
+        vm.warp(uint256(tgeTime) + 24 hours + 7 days);
+
+        // Full refund now has penalty since Full Refund Duration expired
+        (uint256 amount, uint256 percent) = idoManager.getTokensAvailableToRefundWithPenalty(idoId, user, true);
+        assertGt(amount, 0);
+        assertEq(percent, HUNDRED_PERCENT - 500_000); // 5% full refund penalty
+    }
+
+    /// @notice C2: Claiming AFTER TWAP window does NOT disqualify from no-penalty full refund
+    function test_refund_C2_ClaimAfterTWAPWindow_ThenFullRefundStillNoPenalty() public {
+        (uint256 idoId, uint64 tgeTime) = _setupTWAPScenario();
+
+        // Move past TWAP window, set failed TWAP price
+        vm.warp(uint256(tgeTime) + 24 hours);
+        vm.prank(admin);
+        idoManager.setTwapPriceUsdt(idoId, 6e7);
+
+        // Claim tokens AFTER TWAP window - should NOT disqualify
+        vm.prank(user);
+        idoManager.claimTokens(idoId);
+        assertFalse(idoManager.twapNoPenaltyFullRefundDisqualified(idoId, user));
+
+        // Full refund should still be no penalty (user only acted after TWAP window)
+        (uint256 amount, uint256 percent) = idoManager.getTokensAvailableToRefundWithPenalty(idoId, user, true);
+        assertGt(amount, 0);
+        assertEq(percent, HUNDRED_PERCENT); // no penalty
+
+        // Execute full refund and verify funds returned
+        uint256 balBefore = usdt.balanceOf(user);
+        vm.prank(user);
+        idoManager.processRefund(idoId, true);
+        uint256 balAfter = usdt.balanceOf(user);
+        assertGt(balAfter - balBefore, 0);
+    }
+
+    /// @notice C1: Disqualified user retains claim, partial refund (w/penalty), and full refund (w/penalty)
+    function test_refund_C1_DisqualifiedUser_CanStillClaimAndRefundWithPenalty() public {
+        (uint256 idoId, uint64 tgeTime) = _setupTWAPScenario();
+
+        // Claim during TWAP window → gets disqualified
+        vm.warp(uint256(tgeTime) + 1 hours);
+        vm.prank(user);
+        idoManager.claimTokens(idoId);
+        assertTrue(idoManager.twapNoPenaltyFullRefundDisqualified(idoId, user));
+
+        // Move past TWAP window, set failed TWAP
+        vm.warp(uint256(tgeTime) + 24 hours);
+        vm.prank(admin);
+        idoManager.setTwapPriceUsdt(idoId, 6e7);
+
+        // Can still claim more tokens (vesting has progressed)
+        uint256 claimable = idoManager.getTokensAvailableToClaim(idoId, user);
+        assertGt(claimable, 0);
+        uint256 tokenBalBefore = idoToken.balanceOf(user);
+        vm.prank(user);
+        idoManager.claimTokens(idoId);
+        assertGt(idoToken.balanceOf(user) - tokenBalBefore, 0);
+
+        // Can do partial refund with penalty (10%)
+        vm.prank(user);
+        assertTrue(idoManager.isRefundAvailable(idoId, false));
+        (, uint256 partialPercent) = idoManager.getTokensAvailableToRefundWithPenalty(idoId, user, false);
+        assertEq(partialPercent, HUNDRED_PERCENT - 1_000_000);
+
+        // Can do full refund with penalty (5%) — NOT no-penalty
+        vm.prank(user);
+        assertTrue(idoManager.isRefundAvailable(idoId, true));
+        (, uint256 fullPercent) = idoManager.getTokensAvailableToRefundWithPenalty(idoId, user, true);
+        assertEq(fullPercent, HUNDRED_PERCENT - 500_000);
+
+        // Execute full refund with penalty and verify
+        uint256 usdtBalBefore = usdt.balanceOf(user);
+        vm.prank(user);
+        idoManager.processRefund(idoId, true);
+        uint256 usdtBalAfter = usdt.balanceOf(user);
+        assertGt(usdtBalAfter - usdtBalBefore, 0);
     }
 }
 

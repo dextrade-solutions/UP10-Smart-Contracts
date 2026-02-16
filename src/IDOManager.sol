@@ -30,6 +30,8 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
     mapping(uint256 => mapping(address => uint256)) public totalRefundedInToken;
     // Reserves tracking - total tokens claimed by users per IDO
     mapping(uint256 => uint256) public totalClaimedTokens;
+    // Tracks whether user performed claim/refund during TWAP calculation window and lost no-penalty full refund eligibility
+    mapping(uint256 => mapping(address => bool)) public twapNoPenaltyFullRefundDisqualified;
 
     uint256 private constant DECIMALS = 1e18;
     uint32 private constant HUNDRED_PERCENT = 10_000_000;
@@ -204,6 +206,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
 
         // Track total claimed tokens for this IDO
         totalClaimedTokens[idoId] += userTokensAmountToClaim;
+        _markTwapNoPenaltyFullRefundDisqualifiedIfNeeded(idoId, msg.sender, schedules);
 
         IERC20(address(token)).safeTransfer(msg.sender, totalTokensInTokensDecimals);
 
@@ -217,9 +220,11 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         IDOPricing memory pricing = idoPricing[idoId];
         UserInfo memory user = userInfo[idoId][msg.sender];
 
-        require(_isRefundAllowed(schedules, refundInfo, pricing, user, fullRefund), RefundNotAvailable());
+        require(_isRefundAllowed(idoId, msg.sender, schedules, refundInfo, pricing, user, fullRefund), RefundNotAvailable());
 
         uint256 tokensToRefund = _getTokensAvailableToRefund(
+            idoId,
+            msg.sender,
             schedules,
             refundInfo,
             pricing,
@@ -230,6 +235,8 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         require(tokensToRefund > 0, NothingToRefund());
 
         uint256 percentToReturn = _getRefundPercentAfterPenalty(
+            idoId,
+            msg.sender,
             schedules,
             refundInfo,
             pricing,
@@ -248,6 +255,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         uint8 refundFlags = _calcRefundFlags(schedules, pricing, fullRefund);
 
         IERC20(user.investedToken).safeTransfer(msg.sender, investedTokensToRefundScaled);
+        _markTwapNoPenaltyFullRefundDisqualifiedIfNeeded(idoId, msg.sender, schedules);
 
         emit Refund(idoId, msg.sender, tokensToRefund, investedTokensToRefund, refundedUsdt, penaltyUsdt, refundFlags);
     }
@@ -349,7 +357,15 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
 
     /// @inheritdoc IIDOManager
     function isRefundAvailable(uint256 idoId, bool fullRefund) external view returns (bool) {
-        return _isRefundAllowed(idoSchedules[idoId], idoRefundInfo[idoId], idoPricing[idoId], userInfo[idoId][msg.sender], fullRefund);
+        return _isRefundAllowed(
+            idoId,
+            msg.sender,
+            idoSchedules[idoId],
+            idoRefundInfo[idoId],
+            idoPricing[idoId],
+            userInfo[idoId][msg.sender],
+            fullRefund
+        );
     }
 
     /// @inheritdoc IIDOManager
@@ -368,6 +384,8 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         bool fullRefund
     ) external view returns (uint256 amount) {
         return _getTokensAvailableToRefund(
+            idoId,
+            user,
             idoSchedules[idoId],
             idoRefundInfo[idoId],
             idoPricing[idoId],
@@ -387,8 +405,8 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         IDOPricing memory pricing = idoPricing[idoId];
         UserInfo memory userInfoLocal = userInfo[idoId][user];
 
-        totalRefundAmount = _getTokensAvailableToRefund(schedules, refundInfo, pricing, userInfoLocal, fullRefund);
-        refundPercentAfterPenalty = _getRefundPercentAfterPenalty(schedules, refundInfo, pricing, userInfoLocal, fullRefund);
+        totalRefundAmount = _getTokensAvailableToRefund(idoId, user, schedules, refundInfo, pricing, userInfoLocal, fullRefund);
+        refundPercentAfterPenalty = _getRefundPercentAfterPenalty(idoId, user, schedules, refundInfo, pricing, userInfoLocal, fullRefund);
     }
 
     /// @inheritdoc IIDOManager
@@ -477,13 +495,15 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
     }
 
     function _getTokensAvailableToRefund(
+        uint256 idoId,
+        address userAddr,
         IDOSchedules memory schedules,
         IDORefundInfo memory refundInfo,
         IDOPricing memory pricing,
         UserInfo memory user,
         bool fullRefund
     ) internal view returns (uint256 tokensToRefund) {
-        if (!_isRefundAllowed(schedules, refundInfo, pricing, user, fullRefund)) {
+        if (!_isRefundAllowed(idoId, userAddr, schedules, refundInfo, pricing, user, fullRefund)) {
             return 0;
         }
 
@@ -500,21 +520,25 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
     }
 
     function _getRefundPercentAfterPenalty(
+        uint256 idoId,
+        address userAddr,
         IDOSchedules memory schedules, 
         IDORefundInfo memory refundInfo, 
         IDOPricing memory pricing,
         UserInfo memory user,
         bool fullRefund
     ) internal view returns (uint256 refundPercentAfterPenalty) {
-        if (!_isRefundAllowed(schedules, refundInfo, pricing, user, fullRefund)) {
+        if (!_isRefundAllowed(idoId, userAddr, schedules, refundInfo, pricing, user, fullRefund)) {
             return 0;
         }
 
         uint256 penalty;
 
-        if (_isTWAPWindowFinished(schedules)
+        if (fullRefund
+            && _isTWAPWindowFinished(schedules)
             && !_isFullRefundWindowFinished(schedules, refundInfo.refundPolicy)
-            && _isTWAPUndervalued(pricing)
+            && _isTWAPBelowFullRefundPrice(pricing)
+            && !_isTwapNoPenaltyFullRefundDisqualified(idoId, userAddr)
         ) {
             penalty = 0;
         } else if (fullRefund) {
@@ -716,6 +740,8 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
     }
 
     function _isRefundAllowed(
+        uint256 idoId,
+        address userAddr,
         IDOSchedules memory schedules, 
         IDORefundInfo memory refundInfo, 
         IDOPricing memory pricing, 
@@ -729,10 +755,14 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         if (!_isTGEStarted(schedules)) {
             return _isRefundBeforeTGEAllowed(fullRefund, refundInfo);
         }
-        if (_isTWAPWindowFinished(schedules) &&
-            !_isFullRefundWindowFinished(schedules, refundInfo.refundPolicy)) 
-        {
-            return _isTWAPUndervalued(pricing) && fullRefund;
+        if (fullRefund) {
+            if (_isTWAPWindowFinished(schedules) &&
+                !_isFullRefundWindowFinished(schedules, refundInfo.refundPolicy))
+            {
+                if (_isTWAPBelowFullRefundPrice(pricing) && !_isTwapNoPenaltyFullRefundDisqualified(idoId, userAddr)) {
+                    return true;
+                }
+            }
         }
         if (!_isCliffFinished(schedules)) {
             return _isCliffRefundAllowed(fullRefund, refundInfo);
@@ -780,8 +810,32 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         return tgeTime > 0 && block.timestamp >= tgeTime + _idoSchedules.twapCalculationWindowHours * 1 hours + _refundPolicy.fullRefundDuration;
     }
 
-    function _isTWAPUndervalued(IDOPricing memory _idoPricing) internal pure returns (bool) {
-        return _idoPricing.twapPriceUsdt > 0 && _idoPricing.twapPriceUsdt <= _idoPricing.initialPriceUsdt;
+    function _isTWAPBelowFullRefundPrice(IDOPricing memory _idoPricing) internal pure returns (bool) {
+        return _idoPricing.twapPriceUsdt > 0 && _idoPricing.twapPriceUsdt <= _idoPricing.fullRefundPriceUsdt;
+    }
+
+    function _isWithinTWAPCalculationWindow(IDOSchedules memory schedules) internal view returns (bool) {
+        if (!_isTGEStarted(schedules)) {
+            return false;
+        }
+
+        uint64 tgeTime = schedules.tgeTime;
+        uint256 twapWindowEnd = tgeTime + schedules.twapCalculationWindowHours * 1 hours;
+        return block.timestamp < twapWindowEnd;
+    }
+
+    function _markTwapNoPenaltyFullRefundDisqualifiedIfNeeded(
+        uint256 idoId,
+        address userAddr,
+        IDOSchedules memory schedules
+    ) internal {
+        if (_isWithinTWAPCalculationWindow(schedules)) {
+            twapNoPenaltyFullRefundDisqualified[idoId][userAddr] = true;
+        }
+    }
+
+    function _isTwapNoPenaltyFullRefundDisqualified(uint256 idoId, address userAddr) internal view returns (bool) {
+        return twapNoPenaltyFullRefundDisqualified[idoId][userAddr];
     }
 
     function _isRefundBeforeTGEAllowed(bool fullRefund, IDORefundInfo memory refundInfo) internal pure returns (bool) {
