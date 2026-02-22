@@ -249,6 +249,26 @@ interface IIDOManager {
     /// @return True if refund is available, false otherwise
     function isRefundAvailable(uint256 idoId, bool fullRefund) external view returns (bool);
 
+    /// @notice Returns a reason code explaining why a refund is not allowed
+    /// @dev Reason codes:
+    ///  0  = Refund is allowed
+    ///  1  = User already claimed and policy forbids refund after claim
+    ///  2  = Before TGE: partial refund not allowed (only full refund possible)
+    ///  3  = Before TGE: full refund before TGE not allowed by policy
+    ///  4  = TWAP window active but TWAP is not below full refund price
+    ///  5  = TWAP window active but user is disqualified from no-penalty full refund
+    ///  6  = TWAP window active but this is a partial refund (only full refund path)
+    ///  7  = In cliff: full refund not allowed by policy
+    ///  8  = In cliff: partial refund not allowed by policy
+    ///  9  = In vesting: full refund not allowed by policy
+    ///  10 = In vesting: partial refund not allowed by policy
+    ///  11 = User has no investment (allocatedTokens == 0)
+    /// @param idoId The identifier of the IDO
+    /// @param user The address of the user to check
+    /// @param fullRefund True to check full refund, false for partial
+    /// @return Reason code (0 means refund is allowed)
+    function getRefundNotAllowedReason(uint256 idoId, address user, bool fullRefund) external view returns (uint8);
+
     /// @notice Calculates the amount of tokens available for a user to claim
     /// @dev Based on vesting schedule, TGE unlock, and previous claims/refunds
     /// @param idoId The identifier of the IDO

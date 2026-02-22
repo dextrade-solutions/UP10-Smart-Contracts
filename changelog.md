@@ -1,6 +1,13 @@
 # General
 1. Added dependency management. Fix Openzeppelin imports 
 
+# 2026-02-22
+
+## IDOManager
+1. Add `getRefundNotAllowedReason(uint256 idoId, address user, bool fullRefund)` public view function that returns a `uint8` reason code explaining why a refund is not allowed (0 = allowed, 1–11 = specific denial reasons)
+2. Add `getRefundNotAllowedReason` to `IIDOManager` interface with full NatSpec documentation of all reason codes
+3. Refactor `_isRefundAllowed()` to delegate to new internal `_getRefundNotAllowedReason()`, preserving existing behavior while enabling reason code reporting
+
 # 2026-02-04
 
 ## KYCVerifier

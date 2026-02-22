@@ -369,6 +369,23 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
     }
 
     /// @inheritdoc IIDOManager
+    function getRefundNotAllowedReason(uint256 idoId, address user, bool fullRefund) external view returns (uint8) {
+        UserInfo memory _user = userInfo[idoId][user];
+        if (_user.allocatedTokens == 0) {
+            return 11;
+        }
+        return _getRefundNotAllowedReason(
+            idoId,
+            user,
+            idoSchedules[idoId],
+            idoRefundInfo[idoId],
+            idoPricing[idoId],
+            _user,
+            fullRefund
+        );
+    }
+
+    /// @inheritdoc IIDOManager
     function getTokensAvailableToClaim(
         uint256 idoId,
         address user
@@ -748,30 +765,69 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         UserInfo memory user, 
         bool fullRefund
     ) internal view returns (bool) {
+        return _getRefundNotAllowedReason(idoId, userAddr, schedules, refundInfo, pricing, user, fullRefund) == 0;
+    }
 
+    /// @notice Returns the reason code why a refund is not allowed (0 = allowed)
+    /// @dev Reason codes:
+    ///  0  = Refund is allowed
+    ///  1  = User already claimed and policy forbids refund after claim
+    ///  2  = Before TGE: partial refund not allowed (only full refund possible)
+    ///  3  = Before TGE: full refund before TGE not allowed by policy
+    ///  4  = TWAP window active but TWAP is not below full refund price
+    ///  5  = TWAP window active but user is disqualified from no-penalty full refund
+    ///  6  = TWAP window active but this is a partial refund (only full refund path)
+    ///  7  = In cliff: full refund not allowed by policy
+    ///  8  = In cliff: partial refund not allowed by policy
+    ///  9  = In vesting: full refund not allowed by policy
+    ///  10 = In vesting: partial refund not allowed by policy
+    ///  11 = User has no investment (allocatedTokens == 0)
+    function _getRefundNotAllowedReason(
+        uint256 idoId,
+        address userAddr,
+        IDOSchedules memory schedules, 
+        IDORefundInfo memory refundInfo, 
+        IDOPricing memory pricing, 
+        UserInfo memory user, 
+        bool fullRefund
+    ) internal view returns (uint8) {
         if (!refundInfo.refundPolicy.isRefundIfClaimedAllowed && user.claimed) {
-            return false;
+            return 1;
         }
         if (!_isTGEStarted(schedules)) {
-            return _isRefundBeforeTGEAllowed(fullRefund, refundInfo);
+            if (!fullRefund) {
+                return 2;
+            }
+            if (!refundInfo.refundPolicy.isFullRefundBeforeTGEAllowed) {
+                return 3;
+            }
+            return 0;
         }
         if (fullRefund) {
             if (_isTWAPWindowFinished(schedules) &&
                 !_isFullRefundWindowFinished(schedules, refundInfo.refundPolicy))
             {
                 if (_isTWAPBelowFullRefundPrice(pricing) && !_isTwapNoPenaltyFullRefundDisqualified(idoId, userAddr)) {
-                    return true;
+                    return 0;
                 }
             }
         }
         if (!_isCliffFinished(schedules)) {
-            return _isCliffRefundAllowed(fullRefund, refundInfo);
+            if (fullRefund) {
+                return refundInfo.refundPolicy.isFullRefundInCliffAllowed ? 0 : 7;
+            } else {
+                return refundInfo.refundPolicy.isPartialRefundInCliffAllowed ? 0 : 8;
+            }
         }
         if (_isCliffFinished(schedules)) {
-            return _isRefundInVestingAllowed(fullRefund, refundInfo);
+            if (fullRefund) {
+                return refundInfo.refundPolicy.isFullRefundInVestingAllowed ? 0 : 9;
+            } else {
+                return refundInfo.refundPolicy.isPartialRefundInVestingAllowed ? 0 : 10;
+            }
         }
 
-        return true;
+        return 0;
     }
 
     function _convertToUSDT(
