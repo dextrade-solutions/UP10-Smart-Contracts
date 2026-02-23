@@ -1,6 +1,12 @@
 # General
 1. Added dependency management. Fix Openzeppelin imports 
 
+# 2026-02-23
+
+## IDOManager
+1. Extend no-penalty full refund disqualification window from TWAP calculation window only to the entire period from TWAP calculation window start until full refund window end
+2. Remove unused `_isWithinTWAPCalculationWindow` helper
+
 # 2026-02-22
 
 ## IDOManager
