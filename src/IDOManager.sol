@@ -30,7 +30,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
     mapping(uint256 => mapping(address => uint256)) public totalRefundedInToken;
     // Reserves tracking - total tokens claimed by users per IDO
     mapping(uint256 => uint256) public totalClaimedTokens;
-    // Tracks whether user performed claim/refund during TWAP calculation window and lost no-penalty full refund eligibility
+    // Tracks whether user performed claim/refund from TWAP calculation window start until full refund window end, losing no-penalty full refund eligibility
     mapping(uint256 => mapping(address => bool)) public twapNoPenaltyFullRefundDisqualified;
 
     uint256 private constant DECIMALS = 1e18;
@@ -206,7 +206,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
 
         // Track total claimed tokens for this IDO
         totalClaimedTokens[idoId] += userTokensAmountToClaim;
-        _markTwapNoPenaltyFullRefundDisqualifiedIfNeeded(idoId, msg.sender, schedules);
+        _markTwapNoPenaltyFullRefundDisqualifiedIfNeeded(idoId, msg.sender, schedules, idoRefundInfo[idoId].refundPolicy);
 
         IERC20(address(token)).safeTransfer(msg.sender, totalTokensInTokensDecimals);
 
@@ -255,7 +255,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         uint8 refundFlags = _calcRefundFlags(schedules, pricing, fullRefund);
 
         IERC20(user.investedToken).safeTransfer(msg.sender, investedTokensToRefundScaled);
-        _markTwapNoPenaltyFullRefundDisqualifiedIfNeeded(idoId, msg.sender, schedules);
+        _markTwapNoPenaltyFullRefundDisqualifiedIfNeeded(idoId, msg.sender, schedules, refundInfo.refundPolicy);
 
         emit Refund(idoId, msg.sender, tokensToRefund, investedTokensToRefund, refundedUsdt, penaltyUsdt, refundFlags);
     }
@@ -870,22 +870,13 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         return _idoPricing.twapPriceUsdt > 0 && _idoPricing.twapPriceUsdt <= _idoPricing.fullRefundPriceUsdt;
     }
 
-    function _isWithinTWAPCalculationWindow(IDOSchedules memory schedules) internal view returns (bool) {
-        if (!_isTGEStarted(schedules)) {
-            return false;
-        }
-
-        uint64 tgeTime = schedules.tgeTime;
-        uint256 twapWindowEnd = tgeTime + schedules.twapCalculationWindowHours * 1 hours;
-        return block.timestamp < twapWindowEnd;
-    }
-
     function _markTwapNoPenaltyFullRefundDisqualifiedIfNeeded(
         uint256 idoId,
         address userAddr,
-        IDOSchedules memory schedules
+        IDOSchedules memory schedules,
+        RefundPolicy memory refundPolicy
     ) internal {
-        if (_isWithinTWAPCalculationWindow(schedules)) {
+        if (_isTGEStarted(schedules) && !_isFullRefundWindowFinished(schedules, refundPolicy)) {
             twapNoPenaltyFullRefundDisqualified[idoId][userAddr] = true;
         }
     }
