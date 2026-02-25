@@ -294,6 +294,40 @@ contract RefundReasonTest is Test {
         assertEq(reasonPartial, 0, "Should return 0 when partial vesting refund is allowed");
     }
 
+    // ── Code 12: Refund window after vesting expired ──
+
+    function test_reason_12_afterVestingTimeoutExpired() public {
+        uint256 idoId = _createIDOWithPolicy(_defaultPolicy());
+        _investUser(idoId);
+
+        uint64 tgeTime = uint64(block.timestamp + 11 days);
+        _setTgeAndClaim(idoId, tgeTime);
+
+        // cliff(7d) + vesting(30d) + timeout(90d) + 1s
+        vm.warp(uint256(tgeTime) + 127 days + 1);
+
+        uint8 reasonFull = idoManager.getRefundNotAllowedReason(idoId, user, true);
+        uint8 reasonPartial = idoManager.getRefundNotAllowedReason(idoId, user, false);
+        assertEq(reasonFull, 12, "Should return 12 after refund window expires (full)");
+        assertEq(reasonPartial, 12, "Should return 12 after refund window expires (partial)");
+    }
+
+    function test_reason_0_atExactVestingTimeoutDeadline() public {
+        uint256 idoId = _createIDOWithPolicy(_defaultPolicy());
+        _investUser(idoId);
+
+        uint64 tgeTime = uint64(block.timestamp + 11 days);
+        _setTgeAndClaim(idoId, tgeTime);
+
+        // At exact deadline, refund is still allowed (> deadline is blocked)
+        vm.warp(uint256(tgeTime) + 127 days);
+
+        uint8 reasonFull = idoManager.getRefundNotAllowedReason(idoId, user, true);
+        uint8 reasonPartial = idoManager.getRefundNotAllowedReason(idoId, user, false);
+        assertEq(reasonFull, 0, "Should allow full refund exactly at deadline");
+        assertEq(reasonPartial, 0, "Should allow partial refund exactly at deadline");
+    }
+
     // ── Code 0: TWAP no-penalty full refund path (eligible) ──
 
     function test_reason_0_twapNoPenaltyFullRefund() public {

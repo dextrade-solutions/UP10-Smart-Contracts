@@ -1,6 +1,19 @@
 # General
 1. Added dependency management. Fix Openzeppelin imports 
 
+# 2026-02-25
+
+## IDOManager
+1. Enforce `timeoutForRefundAfterVesting` in refund eligibility logic after vesting ends (`tge + cliff + vesting + timeout`)
+2. Add new refund denial reason code `12` for expired post-vesting refund window
+
+## IIDOManager
+1. Update NatSpec reason code documentation to include code `12` (`Refund window after vesting has expired`)
+
+## Tests
+1. Add unit coverage for refund-timeout reason code (`12`) and deadline boundary behavior in `RefundReason.t.sol`
+2. Add execution-path tests for exact-deadline success and post-deadline `RefundNotAvailable()` revert in `IDOManager.t.sol`
+
 # 2026-02-23
 
 ## IDOManager

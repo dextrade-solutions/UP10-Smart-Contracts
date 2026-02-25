@@ -782,6 +782,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
     ///  9  = In vesting: full refund not allowed by policy
     ///  10 = In vesting: partial refund not allowed by policy
     ///  11 = User has no investment (allocatedTokens == 0)
+    ///  12 = Refund window after vesting has expired
     function _getRefundNotAllowedReason(
         uint256 idoId,
         address userAddr,
@@ -820,6 +821,9 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
             }
         }
         if (_isCliffFinished(schedules)) {
+            if (_isRefundAfterVestingWindowFinished(schedules)) {
+                return 12;
+            }
             if (fullRefund) {
                 return refundInfo.refundPolicy.isFullRefundInVestingAllowed ? 0 : 9;
             } else {
@@ -864,6 +868,20 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
     function _isFullRefundWindowFinished(IDOSchedules memory _idoSchedules, RefundPolicy memory _refundPolicy) internal view returns (bool) {
         uint64 tgeTime = _idoSchedules.tgeTime;
         return tgeTime > 0 && block.timestamp >= tgeTime + _idoSchedules.twapCalculationWindowHours * 1 hours + _refundPolicy.fullRefundDuration;
+    }
+
+    function _isRefundAfterVestingWindowFinished(IDOSchedules memory _idoSchedules) internal view returns (bool) {
+        uint64 tgeTime = _idoSchedules.tgeTime;
+        if (tgeTime == 0) {
+            return false;
+        }
+
+        uint256 refundDeadline = uint256(tgeTime) +
+            _idoSchedules.cliffDuration +
+            _idoSchedules.vestingDuration +
+            _idoSchedules.timeoutForRefundAfterVesting;
+
+        return block.timestamp > refundDeadline;
     }
 
     function _isTWAPBelowFullRefundPrice(IDOPricing memory _idoPricing) internal pure returns (bool) {

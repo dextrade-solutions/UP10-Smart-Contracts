@@ -263,6 +263,7 @@ interface IIDOManager {
     ///  9  = In vesting: full refund not allowed by policy
     ///  10 = In vesting: partial refund not allowed by policy
     ///  11 = User has no investment (allocatedTokens == 0)
+    ///  12 = Refund window after vesting has expired
     /// @param idoId The identifier of the IDO
     /// @param user The address of the user to check
     /// @param fullRefund True to check full refund, false for partial

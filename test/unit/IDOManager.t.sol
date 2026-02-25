@@ -392,7 +392,7 @@ contract IDOManagerTest is Test {
         assertTrue(idoManager.isRefundAvailable(idoId, true));
     }
 
-    function test_refund_TWAPWindowBoundary_ExactEndDoesNotDisqualify() public {
+    function test_refund_FullRefundWindowBoundary_ExactEndDoesNotDisqualify() public {
         address user2 = makeAddr("user2");
         uint64 startTime = uint64(block.timestamp + 1 days);
         uint256 idoId = _createTWAPRefundIDO(startTime, uint64(startTime + 10 days));
@@ -413,22 +413,31 @@ contract IDOManagerTest is Test {
         vm.stopPrank();
         idoToken.mint(address(idoManager), 1000000e18);
 
-        vm.warp(uint256(tgeTime) + 24 hours - 1);
-        vm.prank(user);
-        idoManager.claimTokens(idoId);
-
+        // Set failed TWAP price after TWAP window
         vm.warp(uint256(tgeTime) + 24 hours);
-        vm.prank(user2);
-        idoManager.claimTokens(idoId);
-
         vm.prank(admin);
         idoManager.setTwapPriceUsdt(idoId, 6e7); // Failed listing
 
+        // user1 claims 1s before full refund window ends → disqualified
+        vm.warp(uint256(tgeTime) + 24 hours + 7 days - 1);
+        vm.prank(user);
+        idoManager.claimTokens(idoId);
+
+        // user2 claims exactly at full refund window end → NOT disqualified
+        vm.warp(uint256(tgeTime) + 24 hours + 7 days);
+        vm.prank(user2);
+        idoManager.claimTokens(idoId);
+
+        // Verify disqualification flags
+        assertTrue(idoManager.twapNoPenaltyFullRefundDisqualified(idoId, user));
+        assertFalse(idoManager.twapNoPenaltyFullRefundDisqualified(idoId, user2));
+
+        // Both get penalty: user1 because disqualified, user2 because full refund window ended
         (, uint256 percentUser1) = idoManager.getTokensAvailableToRefundWithPenalty(idoId, user, true);
         (, uint256 percentUser2) = idoManager.getTokensAvailableToRefundWithPenalty(idoId, user2, true);
 
         assertEq(percentUser1, HUNDRED_PERCENT - 500_000);
-        assertEq(percentUser2, HUNDRED_PERCENT);
+        assertEq(percentUser2, HUNDRED_PERCENT - 500_000);
     }
 
     /// @notice C1: Partial refund during TWAP window also disqualifies from no-penalty full refund
@@ -523,8 +532,8 @@ contract IDOManagerTest is Test {
         assertEq(percent, HUNDRED_PERCENT - 500_000); // 5% full refund penalty
     }
 
-    /// @notice C2: Claiming AFTER TWAP window does NOT disqualify from no-penalty full refund
-    function test_refund_C2_ClaimAfterTWAPWindow_ThenFullRefundStillNoPenalty() public {
+    /// @notice C2: Claiming during full refund window (after TWAP) DOES disqualify from no-penalty full refund
+    function test_refund_C2_ClaimDuringFullRefundWindow_DisqualifiesFromNoPenalty() public {
         (uint256 idoId, uint64 tgeTime) = _setupTWAPScenario();
 
         // Move past TWAP window, set failed TWAP price
@@ -532,22 +541,53 @@ contract IDOManagerTest is Test {
         vm.prank(admin);
         idoManager.setTwapPriceUsdt(idoId, 6e7);
 
-        // Claim tokens AFTER TWAP window - should NOT disqualify
+        // Claim tokens during full refund window (after TWAP window) → disqualified
         vm.prank(user);
         idoManager.claimTokens(idoId);
-        assertFalse(idoManager.twapNoPenaltyFullRefundDisqualified(idoId, user));
+        assertTrue(idoManager.twapNoPenaltyFullRefundDisqualified(idoId, user));
 
-        // Full refund should still be no penalty (user only acted after TWAP window)
+        // Full refund should have penalty since user is disqualified (5% full refund penalty)
         (uint256 amount, uint256 percent) = idoManager.getTokensAvailableToRefundWithPenalty(idoId, user, true);
         assertGt(amount, 0);
-        assertEq(percent, HUNDRED_PERCENT); // no penalty
+        assertEq(percent, HUNDRED_PERCENT - 500_000); // 5% penalty
 
-        // Execute full refund and verify funds returned
+        // Execute full refund and verify funds returned (with penalty)
         uint256 balBefore = usdt.balanceOf(user);
         vm.prank(user);
         idoManager.processRefund(idoId, true);
         uint256 balAfter = usdt.balanceOf(user);
         assertGt(balAfter - balBefore, 0);
+    }
+
+    function test_refund_AtExactVestingTimeoutDeadline_StillAllowed() public {
+        (uint256 idoId, uint64 tgeTime) = _setupTWAPScenario();
+
+        // For _setupTWAPScenario IDO: cliff=0, vesting=30d, timeout=90d.
+        uint256 deadline = uint256(tgeTime) + 30 days + 90 days;
+        vm.warp(deadline);
+
+        assertEq(idoManager.getRefundNotAllowedReason(idoId, user, true), 0);
+        assertTrue(idoManager.isRefundAvailable(idoId, true));
+
+        uint256 usdtBefore = usdt.balanceOf(user);
+        vm.prank(user);
+        idoManager.processRefund(idoId, true);
+        uint256 usdtAfter = usdt.balanceOf(user);
+        assertGt(usdtAfter - usdtBefore, 0);
+    }
+
+    function test_refund_AfterVestingTimeoutDeadline_Reverts() public {
+        (uint256 idoId, uint64 tgeTime) = _setupTWAPScenario();
+
+        uint256 deadline = uint256(tgeTime) + 30 days + 90 days;
+        vm.warp(deadline + 1);
+
+        assertEq(idoManager.getRefundNotAllowedReason(idoId, user, true), 12);
+        assertFalse(idoManager.isRefundAvailable(idoId, true));
+
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSignature("RefundNotAvailable()"));
+        idoManager.processRefund(idoId, true);
     }
 
     /// @notice C1: Disqualified user retains claim, partial refund (w/penalty), and full refund (w/penalty)
