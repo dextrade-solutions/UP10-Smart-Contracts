@@ -700,14 +700,14 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
 
     function _recordRefundPenalties(
         uint256 idoId,
-        address token,
+        address investedToken,
         uint256 fullRefundUsdt,
         uint256 refundedUsdt,
-        address investedToken
+        uint256 fullRefundInvestedTokensScaled,
+        uint256 investedTokensToRefundScaled
     ) internal returns (uint256) {
         uint256 penaltyUsdt = fullRefundUsdt - refundedUsdt;
-        uint256 penaltyInInvestedToken = _convertFromUSDT(penaltyUsdt, getStaticPrice(investedToken));
-        uint256 penaltyScaled = penaltyInInvestedToken.mulDiv(10 ** ERC20(token).decimals(), DECIMALS);
+        uint256 penaltyScaled = fullRefundInvestedTokensScaled - investedTokensToRefundScaled;
         penaltyFeesCollected[idoId][investedToken] += penaltyScaled;
         return penaltyUsdt;
     }
@@ -742,6 +742,8 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         investedTokensToRefund = _convertFromUSDT(refundedUsdt, getStaticPrice(user.investedToken));
         ERC20 token = ERC20(user.investedToken);
         investedTokensToRefundScaled = investedTokensToRefund.mulDiv(10 ** token.decimals(), DECIMALS);
+        uint256 fullRefundInvestedTokens = _convertFromUSDT(fullRefundUsdt, getStaticPrice(user.investedToken));
+        uint256 fullRefundInvestedTokensScaled = fullRefundInvestedTokens.mulDiv(10 ** token.decimals(), DECIMALS);
 
         require(user.investedTokenAmountRefunded + investedTokensToRefundScaled <= user.investedTokenAmount, RefundExceedsInvested());
 
@@ -752,7 +754,14 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
 
         // Track penalty fees collected (difference between full refund and actual refund)
         if (percentToReturn < HUNDRED_PERCENT) {
-            penaltyUsdt = _recordRefundPenalties(idoId, user.investedToken, fullRefundUsdt, refundedUsdt, user.investedToken);
+            penaltyUsdt = _recordRefundPenalties(
+                idoId,
+                user.investedToken,
+                fullRefundUsdt,
+                refundedUsdt,
+                fullRefundInvestedTokensScaled,
+                investedTokensToRefundScaled
+            );
         } else {
             penaltyUsdt = 0;
         }
