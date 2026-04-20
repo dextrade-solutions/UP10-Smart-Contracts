@@ -19,7 +19,8 @@ abstract contract EmergencyWithdrawAdmin is WithAdminManager {
         if (_token != address(0)) {
             IERC20(_token).safeTransfer(msg.sender, _amount);
         } else {
-            payable(msg.sender).transfer(_amount);
+            (bool success, ) = payable(msg.sender).call{value: _amount}("");
+            if (!success) revert ETHTransferFailed();
         }
     }
 }

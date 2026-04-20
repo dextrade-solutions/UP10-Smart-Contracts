@@ -22,6 +22,9 @@ error NotAStablecoin();
 /// @notice Thrown when amount is zero or invalid
 error InvalidAmount();
 
+/// @notice Thrown when native ETH transfer fails
+error ETHTransferFailed();
+
 /// @notice Thrown when withdrawal amount exceeds available balance
 error ExceedsWithdrawableAmount();
 
