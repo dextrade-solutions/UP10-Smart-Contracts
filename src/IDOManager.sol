@@ -152,7 +152,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
 
         require(amountInUSD >= ido.info.minAllocationUSD, BelowMinAllocation());
 
-        (uint256 bonusPercent, Phase phaseNow) = _getPhaseBonus(ido);
+        (uint256 bonusPercent, Phase phaseNow) = _getPhaseBonus(ido, refundInfo);
 
         uint256 tokensBought = _calculateTokensBought(amountInUSD, bonusPercent, pricing.initialPriceUsdt);
         uint256 tokensBonus = tokensBought - _convertFromUSDT(amountInUSD, pricing.initialPriceUsdt);
@@ -448,7 +448,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
     /// @inheritdoc IIDOManager
     function currentPhase(uint256 idoId) external view returns (Phase) {
         IDO memory ido = idos[idoId];
-        return _currentPhase(ido);
+        return _currentPhase(ido, idoRefundInfo[idoId]);
     }
 
     /// @inheritdoc IIDOManager
@@ -734,22 +734,24 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         }
     }
 
-    function _currentPhase(IDO memory ido) internal pure returns (Phase) {
+    function _currentPhase(IDO memory ido, IDORefundInfo memory refundInfo) internal pure returns (Phase) {
         require(ido.info.totalAllocation > 0, InvalidTotalAllocationForPhase());
 
         uint256 oneThird = ido.info.totalAllocation / 3;
 
-        if (ido.info.totalAllocated < oneThird) {
+        uint256 currentlyAllocated = ido.info.totalAllocated - refundInfo.totalRefunded - refundInfo.penaltySubtractedBonus;
+
+        if (currentlyAllocated < oneThird) {
             return Phase.Phase1;
-        } else if (ido.info.totalAllocated < 2 * oneThird) {
+        } else if (currentlyAllocated < 2 * oneThird) {
             return Phase.Phase2;
         } else {
             return Phase.Phase3;
         }
     }
 
-    function _getPhaseBonus(IDO memory ido) internal pure returns (uint256, Phase) {
-        Phase phase = _currentPhase(ido);
+    function _getPhaseBonus(IDO memory ido, IDORefundInfo memory refundInfo) internal pure returns (uint256, Phase) {
+        Phase phase = _currentPhase(ido, refundInfo);
         if (phase == Phase.Phase1) return (ido.bonuses.phase1BonusPercent, phase);
         if (phase == Phase.Phase2) return (ido.bonuses.phase2BonusPercent, phase);
         return (ido.bonuses.phase3BonusPercent, phase);
