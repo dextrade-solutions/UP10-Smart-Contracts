@@ -671,6 +671,26 @@ contract IDOManagerTest is Test {
         assertGt(balAfter - balBefore, 0);
     }
 
+    function test_setTwapPriceUsdt_AllowsAtDeadline() public {
+        (uint256 idoId, uint64 tgeTime) = _setupTWAPScenario(0);
+        uint256 deadline = uint256(tgeTime) + 24 hours + 1 hours;
+        vm.warp(deadline);
+
+        vm.prank(admin);
+        idoManager.setTwapPriceUsdt(idoId, 9e7);
+
+        (, , uint256 twapPrice) = idoManager.idoPricing(idoId);
+        assertEq(twapPrice, 9e7);
+    }
+
+    function test_setTwapPriceUsdt_RevertsWhenSetSecondTime() public {
+        (uint256 idoId,) = _setupTWAPScenario(8e7);
+
+        vm.prank(admin);
+        vm.expectRevert(TwapPriceAlreadySet.selector);
+        idoManager.setTwapPriceUsdt(idoId, 9e7);
+    }
+
     function test_refund_AtExactVestingTimeoutDeadline_StillAllowed() public {
         (uint256 idoId, uint64 tgeTime) = _setupTWAPScenario(0);
 

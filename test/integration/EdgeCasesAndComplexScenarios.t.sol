@@ -452,14 +452,15 @@ contract EdgeCasesComplexScenariosTest is Test {
         // 3. Setup IDO
         _setupIDO(idoId, address(idoToken1));
 
-        // 4. Admin modifies TWAP price
+        // 4. Admin cannot modify TWAP price after initial set
         uint256 newTwapPrice = 12e7; // $1.20
         vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSignature("TwapPriceAlreadySet()"));
         idoManager.setTwapPriceUsdt(idoId, newTwapPrice);
 
-        // Verify TWAP was updated
+        // Verify TWAP remains unchanged
         (, , uint256 twapPrice) = idoManager.idoPricing(idoId);
-        assertEq(twapPrice, newTwapPrice);
+        assertEq(twapPrice, 8e7);
 
         // 5. Admin modifies claim start time
         uint64 newClaimStart = uint64(block.timestamp + 15 days);

@@ -347,6 +347,11 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         uint256 idoId,
         uint256 twapPriceUsdt
     ) external onlyAdmin {
+        if (idoPricing[idoId].twapPriceUsdt != 0) revert TwapPriceAlreadySet();
+        // uint64 tgeTime = idoSchedules[idoId].tgeTime;
+        // uint64 twapWindowHours = idoSchedules[idoId].twapCalculationWindowHours;
+        // uint256 twapSetDeadline = uint256(tgeTime) + uint256(twapWindowHours) * 1 hours + 1 hours;
+        // if (block.timestamp > twapSetDeadline) revert TwapSetWindowExpired();
         idoPricing[idoId].twapPriceUsdt = twapPriceUsdt;
         emit TwapSet(idoId, twapPriceUsdt);
     }

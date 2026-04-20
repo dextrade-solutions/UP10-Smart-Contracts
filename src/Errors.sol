@@ -124,6 +124,12 @@ error IDOAlreadyStarted();
 /// @notice Thrown when attempting to modify frozen IDO config after first investor
 error IDOAlreadyHasInvestors();
 
+/// @notice Thrown when attempting to set TWAP price after the allowed deadline
+error TwapSetWindowExpired();
+
+/// @notice Thrown when attempting to change TWAP price after it was set
+error TwapPriceAlreadySet();
+
 /// @notice Thrown when user has already invested in this IDO
 error AlreadyInvested();
 
