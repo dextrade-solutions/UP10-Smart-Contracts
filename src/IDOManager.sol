@@ -547,6 +547,8 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         uint256 totalToRefund;
         if (fullRefund && !refundInfo.refundPolicy.isRefundUnlockedPartOnly) {
             totalToRefund = user.allocatedTokens - user.allocatedBonus;
+        } else if (fullRefund && !_isTGEStarted(schedules)) {
+            totalToRefund = user.allocatedTokens - user.allocatedBonus;
         } else {
             uint256 unlockedPercent = _getUnlockedPercent(schedules);
             totalToRefund = (user.allocatedTokens - user.allocatedBonus).mulDiv(unlockedPercent, HUNDRED_PERCENT);
