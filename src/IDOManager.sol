@@ -141,7 +141,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         IDOPricing memory pricing = idoPricing[idoId];
         UserInfo memory user = userInfo[idoId][msg.sender];
 
-        _validateInvestmentState(ido, schedules, user, pricing);
+        _validateInvestmentState(ido, schedules, user, pricing, refundInfo);
 
         (uint256 amountInUSD, uint256 normalizedAmount) = _calculateAmountInUSD(tokenIn, amount);
 
@@ -639,9 +639,10 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         IDO memory ido,
         IDOSchedules memory schedules,
         UserInfo memory user,
-        IDOPricing memory pricing
+        IDOPricing memory pricing,
+        IDORefundInfo memory refundInfo
     ) internal view {
-        require(ido.info.totalAllocated < ido.info.totalAllocation && block.timestamp <= schedules.idoEndTime, IDOEnded());
+        require(ido.info.totalAllocated - refundInfo.totalRefunded - refundInfo.penaltySubtractedBonus < ido.info.totalAllocation, IDOEnded());
         require(block.timestamp >= schedules.idoStartTime, IDONotStarted());
         require(pricing.initialPriceUsdt > 0, InvalidPrice());
         require(user.investedToken == address(0), AlreadyInvested());

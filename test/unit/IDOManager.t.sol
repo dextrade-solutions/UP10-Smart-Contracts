@@ -8,6 +8,7 @@ import {IKYCVerifier} from "../../src/interfaces/IKYCVerifier.sol";
 import {AdminManager} from "../../src/admin_manager/AdminManager.sol";
 import {IIDOManager} from "../../src/interfaces/IIDOManager.sol";
 import {ReservesManager} from "../../src/ReservesManager.sol";
+import "../../src/Errors.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
@@ -757,6 +758,116 @@ contract IDOManagerTest is Test {
         idoManager.processRefund(idoId, true);
         uint256 usdtBalAfter = usdt.balanceOf(user);
         assertGt(usdtBalAfter - usdtBalBefore, 0);
+    }
+
+    function test_RefundedCapacityReusedForInvestment() public {
+        address investor1 = makeAddr("investor1");
+        address investor2 = makeAddr("investor2");
+        address investor3 = makeAddr("investor3");
+        address newInvestor = makeAddr("newInvestor");
+
+        uint64 startTime = uint64(block.timestamp);
+        uint64 endTime = uint64(block.timestamp + 365 days);
+
+        IIDOManager.IDOInput memory idoInput = IIDOManager.IDOInput({
+            info: IIDOManager.IDOInfo({
+                tokenAddress: address(0),
+                projectId: 999,
+                totalAllocated: 0,
+                minAllocationUSD: 100e18,
+                totalAllocationByUser: 3000e18,
+                totalAllocation: 3000e18
+            }),
+            bonuses: IIDOManager.IDOBonuses({
+                phase1BonusPercent: 0,
+                phase2BonusPercent: 0,
+                phase3BonusPercent: 0
+            }),
+            schedules: IIDOManager.IDOSchedules({
+                idoStartTime: startTime,
+                idoEndTime: endTime,
+                claimStartTime: 0,
+                tgeTime: 0,
+                cliffDuration: 0,
+                vestingDuration: 1 days,
+                unlockInterval: 1 days,
+                twapCalculationWindowHours: 24,
+                timeoutForRefundAfterVesting: 90 days,
+                tgeUnlockPercent: 1_000_000
+            }),
+            refundPenalties: IIDOManager.RefundPenalties({
+                fullRefundPenalty: 500_000,
+                fullRefundPenaltyBeforeTge: 200_000,
+                refundPenalty: 1_000_000
+            }),
+            refundPolicy: IIDOManager.RefundPolicy({
+                fullRefundDuration: 7 days,
+                isRefundIfClaimedAllowed: true,
+                isRefundUnlockedPartOnly: false,
+                isRefundInCliffAllowed: true,
+                isFullRefundBeforeTGEAllowed: true,
+                isPartialRefundInCliffAllowed: true,
+                isFullRefundInCliffAllowed: true,
+                isPartialRefundInVestingAllowed: true,
+                isFullRefundInVestingAllowed: true
+            }),
+            initialPriceUsdt: 1e8,
+            fullRefundPriceUsdt: 5e7
+        });
+
+        vm.prank(admin);
+        uint256 idoId = idoManager.createIDO(idoInput);
+
+        _mintAndApprove(investor1, address(usdt), 1000e6);
+        _mintAndApprove(investor2, address(usdt), 1000e6);
+        _mintAndApprove(investor3, address(usdt), 1000e6);
+
+        vm.prank(investor1);
+        idoManager.invest(idoId, 1000e6, address(usdt), KYC_EXPIRES, KYC_SIG);
+        vm.prank(investor2);
+        idoManager.invest(idoId, 1000e6, address(usdt), KYC_EXPIRES, KYC_SIG);
+        vm.prank(investor3);
+        idoManager.invest(idoId, 1000e6, address(usdt), KYC_EXPIRES, KYC_SIG);
+
+        (,, IIDOManager.IDOInfo memory infoBefore,) = idoManager.idos(idoId);
+        emit log_named_uint("totalAllocated after 3 investors", infoBefore.totalAllocated);
+        emit log_named_uint("totalAllocation (IDO cap)", infoBefore.totalAllocation);
+        assertEq(infoBefore.totalAllocated, infoBefore.totalAllocation, "IDO must be exactly at capacity");
+
+        vm.prank(admin);
+        idoManager.setTgeTime(idoId, uint64(block.timestamp));
+        vm.prank(admin);
+        idoManager.setClaimStartTime(idoId, uint64(block.timestamp));
+        vm.prank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+
+        vm.warp(block.timestamp + 30 days + 30 days);
+        vm.prank(investor1);
+        idoManager.processRefund(idoId, true);
+
+        (uint256 totalRefunded, uint256 refundedBonus,,,) = idoManager.idoRefundInfo(idoId);
+        emit log_named_uint("totalRefunded (base)", totalRefunded);
+        emit log_named_uint("refundedBonus", refundedBonus);
+        assertTrue(totalRefunded > 0, "refund must have freed capacity");
+
+        (,, IIDOManager.IDOInfo memory infoAfter,) = idoManager.idos(idoId);
+        assertEq(infoAfter.totalAllocated, infoBefore.totalAllocated, "totalAllocated unchanged after refund");
+        emit log_named_uint("totalAllocated after refund (unchanged)", infoAfter.totalAllocated);
+
+        uint256 effectiveAllocation = infoAfter.totalAllocated - totalRefunded - refundedBonus;
+        emit log_named_uint("effective allocation (refund-adjusted)", effectiveAllocation);
+        assertLt(effectiveAllocation, infoBefore.totalAllocation, "effective allocation below cap - room exists");
+
+        uint256 newInvestAmount = 100e6;
+        usdt.mint(newInvestor, newInvestAmount);
+        vm.startPrank(newInvestor);
+        usdt.approve(address(idoManager), newInvestAmount);
+        idoManager.invest(idoId, newInvestAmount, address(usdt), KYC_EXPIRES, KYC_SIG);
+        vm.stopPrank();
+
+        (, uint256 newInvestorAllocated, , , ) = idoManager.getUserInfo(idoId, newInvestor);
+        assertEq(newInvestorAllocated, 100e18, "new investor should be able to use refunded capacity");
+        emit log_named_uint("capacity reused (tokens)", totalRefunded + refundedBonus);
     }
 }
 
