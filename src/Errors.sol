@@ -108,6 +108,9 @@ error BelowMinAllocation();
 /// @notice Thrown when bonus percent is greater than 100%
 error InvalidBonusPercent();
 
+/// @notice Thrown when IDO id is out of range
+error InvalidIdoId();
+
 // ============================================
 // IDOManager Errors - State Validation
 // ============================================

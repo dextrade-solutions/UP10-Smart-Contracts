@@ -899,6 +899,74 @@ contract IDOManagerTest is Test {
         idoManager.setClaimStartTime(idoId, startTime + 2 days);
     }
 
+    function test_setters_Revert_InvalidIdoId() public {
+        uint256 invalidIdoId = 1;
+
+        vm.prank(admin);
+        vm.expectRevert(InvalidIdoId.selector);
+        idoManager.setClaimStartTime(invalidIdoId, uint64(block.timestamp + 1 days));
+
+        vm.prank(admin);
+        vm.expectRevert(InvalidIdoId.selector);
+        idoManager.setTgeTime(invalidIdoId, uint64(block.timestamp + 1 days));
+
+        vm.prank(admin);
+        vm.expectRevert(InvalidIdoId.selector);
+        idoManager.setIdoTime(invalidIdoId, uint64(block.timestamp + 1 days), uint64(block.timestamp + 2 days));
+
+        vm.prank(admin);
+        vm.expectRevert(InvalidIdoId.selector);
+        idoManager.setTokenAddress(invalidIdoId, address(idoToken));
+
+        vm.prank(admin);
+        vm.expectRevert(InvalidIdoId.selector);
+        idoManager.setTwapPriceUsdt(invalidIdoId, 8e7);
+    }
+
+    function test_setIdoTime_Reverts_InvalidRange() public {
+        uint64 startTime = uint64(block.timestamp + 1 days);
+        uint256 idoId = _createBasicIDO(startTime, uint64(startTime + 30 days));
+
+        vm.prank(admin);
+        vm.expectRevert(InvalidIDOTimeRange.selector);
+        idoManager.setIdoTime(idoId, startTime + 10 days, startTime + 10 days);
+    }
+
+    function test_setTokenAddress_Reverts_ZeroAddress() public {
+        uint64 startTime = uint64(block.timestamp + 1 days);
+        uint256 idoId = _createBasicIDO(startTime, uint64(startTime + 30 days));
+
+        vm.prank(admin);
+        vm.expectRevert(InvalidZeroAddress.selector);
+        idoManager.setTokenAddress(idoId, address(0));
+    }
+
+    function test_setClaimStartTime_Reverts_BeforeTgeTime() public {
+        uint64 startTime = uint64(block.timestamp + 1 days);
+        uint256 idoId = _createBasicIDO(startTime, uint64(startTime + 30 days));
+        uint64 tgeTime = startTime + 10 days;
+
+        vm.prank(admin);
+        idoManager.setTgeTime(idoId, tgeTime);
+
+        vm.prank(admin);
+        vm.expectRevert(InvalidIDOTimeRange.selector);
+        idoManager.setClaimStartTime(idoId, tgeTime - 1);
+    }
+
+    function test_setTgeTime_Reverts_AfterExistingClaimStartTime() public {
+        uint64 startTime = uint64(block.timestamp + 1 days);
+        uint256 idoId = _createBasicIDO(startTime, uint64(startTime + 30 days));
+        uint64 claimStart = startTime + 10 days;
+
+        vm.prank(admin);
+        idoManager.setClaimStartTime(idoId, claimStart);
+
+        vm.prank(admin);
+        vm.expectRevert(InvalidIDOTimeRange.selector);
+        idoManager.setTgeTime(idoId, claimStart + 1);
+    }
+
     function test_setAdminManager_Reverts_ZeroAddress() public {
         vm.expectRevert(InvalidZeroAddress.selector);
         idoManager.setAdminManager(address(0));
