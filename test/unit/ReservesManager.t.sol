@@ -105,24 +105,6 @@ contract ReservesManagerTest is Test {
         assertEq(list[2].price, 3e8);
     }
 
-    function test_setStaticPrice_RevertsForNonAdmin() public {
-        vm.prank(nonAdmin);
-        vm.expectRevert(CallerNotAdmin.selector);
-        reserves.setStaticPrice(address(usdt), 9e8);
-    }
-
-    function test_setStaticPrice_RevertsForUnsupportedToken() public {
-        vm.prank(admin);
-        vm.expectRevert(InvalidToken.selector);
-        reserves.setStaticPrice(address(other), 9e8);
-    }
-
-    function test_setStaticPrice_SetsPrice() public {
-        vm.prank(admin);
-        reserves.setStaticPrice(address(usdt), 9e8);
-        assertEq(reserves.getStaticPrice(address(usdt)), 9e8);
-    }
-
     function test_emergencyWithdraw_RevertsNonSuperAdmin() public {
         vm.prank(nonAdmin);
         vm.expectRevert(CallerNotSuperAdmin.selector);

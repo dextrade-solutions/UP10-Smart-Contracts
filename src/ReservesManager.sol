@@ -67,13 +67,6 @@ abstract contract ReservesManager is IReservesManager, EmergencyWithdrawAdmin {
     }
 
     /// @inheritdoc IReservesManager
-    function setStaticPrice(address token, uint256 price) external onlyAdmin {
-        if (!enabledTokens[token]) revert InvalidToken();
-        staticPrices[token] = price;
-        emit StaticPriceSet(token, price);
-    }
-
-    /// @inheritdoc IReservesManager
     function getStaticPrice(address token) public view returns (uint256) {
         return staticPrices[token];
     }

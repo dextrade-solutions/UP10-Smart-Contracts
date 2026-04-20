@@ -84,12 +84,9 @@ contract EdgeCasesComplexScenariosTest is Test {
 
         idoManager = new IDOManager(tokens, address(kycVerifier), address(adminManager));
 
-        // Setup: Set static prices for stablecoins (8 decimals precision)
+        // Setup: static prices are finalized through constructor token configs
         vm.startPrank(admin);
         idoManager.setKYCThresholdUSD(type(uint256).max);
-        idoManager.setStaticPrice(address(usdt), 1e8); // $1.00
-        idoManager.setStaticPrice(address(usdc), 1e8); // $1.00
-        idoManager.setStaticPrice(address(flx), 1e8);  // $1.00
         vm.stopPrank();
     }
 
