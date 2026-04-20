@@ -21,12 +21,6 @@ abstract contract WithAdminManager {
         _setAdminManager(_adminManager);
     }
 
-    function setAdminManager(
-        address _adminManager
-    ) external virtual {
-        _setAdminManager(_adminManager);
-    }
-
     function _setAdminManager(address _adminManager) internal {
         adminManager = IAdminManager(_adminManager);
     }

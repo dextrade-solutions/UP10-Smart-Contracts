@@ -280,14 +280,14 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
 
     function setKYCVerifier(
         address _kycVerifier
-    ) external override onlySuperAdmin {
+    ) external onlySuperAdmin {
         _setKYCVerifier(_kycVerifier);
         emit KYCVerifierSet(_kycVerifier);
     }
 
     function setAdminManager (
         address _adminManager
-    ) external override onlySuperAdmin {
+    ) external onlySuperAdmin {
         _setAdminManager(_adminManager);
         emit AdminManagerSet(_adminManager);
     }

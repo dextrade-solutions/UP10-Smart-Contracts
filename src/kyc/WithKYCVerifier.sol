@@ -10,10 +10,6 @@ abstract contract WithKYCVerifier {
         _setKYCVerifier(_kycVerifier);
     }
 
-    function setKYCVerifier(address _kycVerifier) external virtual {
-        _setKYCVerifier(_kycVerifier);
-    }
-
     function _setKYCVerifier(address _kycVerifier) internal {
         kycVerifier = IKYCVerifier(_kycVerifier);
     }
