@@ -303,6 +303,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         uint256 idoId,
         uint64 _claimStartTime
     ) external onlyAdmin {
+        _validateMutableIDOConfig(idoId);
         idoSchedules[idoId].claimStartTime = _claimStartTime;
         emit ClaimStartTimeSet(idoId, _claimStartTime);
     }
@@ -312,6 +313,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         uint256 idoId,
         uint64 _tgeTime
     ) external onlyAdmin {
+        _validateMutableIDOConfig(idoId);
         idoSchedules[idoId].tgeTime = _tgeTime;
         emit TgeTimeSet(idoId, _tgeTime);
     }
@@ -322,6 +324,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         uint64 _idoStartTime,
         uint64 _idoEndTime
     ) external onlyAdmin {
+        _validateMutableIDOConfig(idoId);
         idoSchedules[idoId].idoStartTime = _idoStartTime;
         idoSchedules[idoId].idoEndTime = _idoEndTime;
         emit IdoTimeSet(idoId, _idoStartTime, _idoEndTime);
@@ -332,6 +335,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         uint256 idoId,
         address _address
     ) external onlyAdmin {
+        _validateMutableIDOConfig(idoId);
         IDO storage ido = idos[idoId];
         require(ido.info.tokenAddress == address(0), TokenAddressAlreadySet());
         ido.info.tokenAddress = _address;
@@ -343,6 +347,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         uint256 idoId,
         uint256 twapPriceUsdt
     ) external onlyAdmin {
+        _validateMutableIDOConfig(idoId);
         idoPricing[idoId].twapPriceUsdt = twapPriceUsdt;
         emit TwapSet(idoId, twapPriceUsdt);
     }
@@ -496,6 +501,11 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         require(idoInput.bonuses.phase1BonusPercent <= HUNDRED_PERCENT, InvalidBonusPercent());
         require(idoInput.bonuses.phase2BonusPercent <= HUNDRED_PERCENT, InvalidBonusPercent());
         require(idoInput.bonuses.phase3BonusPercent <= HUNDRED_PERCENT, InvalidBonusPercent());
+    }
+
+    function _validateMutableIDOConfig(uint256 idoId) internal view {
+        if (idos[idoId].totalParticipants > 0) revert IDOAlreadyHasInvestors();
+        if (block.timestamp >= idoSchedules[idoId].idoStartTime) revert IDOAlreadyStarted();
     }
 
     function _getTokensAvailableToClaim(

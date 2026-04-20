@@ -115,6 +115,12 @@ error IDOEnded();
 /// @notice Thrown when attempting to invest before IDO starts
 error IDONotStarted();
 
+/// @notice Thrown when attempting to modify frozen IDO config after start
+error IDOAlreadyStarted();
+
+/// @notice Thrown when attempting to modify frozen IDO config after first investor
+error IDOAlreadyHasInvestors();
+
 /// @notice Thrown when user has already invested in this IDO
 error AlreadyInvested();
 

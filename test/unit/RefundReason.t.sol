@@ -67,7 +67,7 @@ contract RefundReasonTest is Test {
     function _createIDOWithPolicy(
         IIDOManager.RefundPolicy memory refundPolicy
     ) internal returns (uint256) {
-        uint64 startTime = uint64(block.timestamp);
+        uint64 startTime = uint64(block.timestamp + 1 days);
         IIDOManager.IDOInput memory idoInput = IIDOManager.IDOInput({
             info: IIDOManager.IDOInfo({
                 tokenAddress: address(0),
@@ -123,6 +123,10 @@ contract RefundReasonTest is Test {
     }
 
     function _investUser(uint256 idoId) internal {
+        (uint64 idoStart,,,,,,,,,) = idoManager.idoSchedules(idoId);
+        if (block.timestamp < idoStart) {
+            vm.warp(idoStart);
+        }
         usdt.mint(user, 1000e6);
         vm.prank(user);
         IERC20(address(usdt)).approve(address(idoManager), 1000e6);
@@ -153,11 +157,10 @@ contract RefundReasonTest is Test {
         IIDOManager.RefundPolicy memory policy = _defaultPolicy();
         policy.isRefundIfClaimedAllowed = false;
         uint256 idoId = _createIDOWithPolicy(policy);
-
-        _investUser(idoId);
-
-        uint64 tgeTime = uint64(block.timestamp + 11 days);
+        (uint64 idoStart,,,,,,,,,) = idoManager.idoSchedules(idoId);
+        uint64 tgeTime = idoStart + 11 days;
         _setTgeAndClaim(idoId, tgeTime);
+        _investUser(idoId);
 
         // Warp to TGE so claim is possible
         vm.warp(tgeTime);
@@ -207,11 +210,10 @@ contract RefundReasonTest is Test {
         IIDOManager.RefundPolicy memory policy = _defaultPolicy();
         policy.isFullRefundInCliffAllowed = false;
         uint256 idoId = _createIDOWithPolicy(policy);
-        _investUser(idoId);
-
-        // Set TGE in the past to start cliff
-        uint64 tgeTime = uint64(block.timestamp + 11 days);
+        (uint64 idoStart,,,,,,,,,) = idoManager.idoSchedules(idoId);
+        uint64 tgeTime = idoStart + 11 days;
         _setTgeAndClaim(idoId, tgeTime);
+        _investUser(idoId);
 
         // Warp to during cliff (TGE started but cliff not finished)
         // cliffDuration = 7 days, so warp to TGE + 1 day (within cliff)
@@ -227,10 +229,10 @@ contract RefundReasonTest is Test {
         IIDOManager.RefundPolicy memory policy = _defaultPolicy();
         policy.isPartialRefundInCliffAllowed = false;
         uint256 idoId = _createIDOWithPolicy(policy);
-        _investUser(idoId);
-
-        uint64 tgeTime = uint64(block.timestamp + 11 days);
+        (uint64 idoStart,,,,,,,,,) = idoManager.idoSchedules(idoId);
+        uint64 tgeTime = idoStart + 11 days;
         _setTgeAndClaim(idoId, tgeTime);
+        _investUser(idoId);
 
         // Warp to during cliff
         vm.warp(uint256(tgeTime) + 1 days);
@@ -245,10 +247,10 @@ contract RefundReasonTest is Test {
         IIDOManager.RefundPolicy memory policy = _defaultPolicy();
         policy.isFullRefundInVestingAllowed = false;
         uint256 idoId = _createIDOWithPolicy(policy);
-        _investUser(idoId);
-
-        uint64 tgeTime = uint64(block.timestamp + 11 days);
+        (uint64 idoStart,,,,,,,,,) = idoManager.idoSchedules(idoId);
+        uint64 tgeTime = idoStart + 11 days;
         _setTgeAndClaim(idoId, tgeTime);
+        _investUser(idoId);
 
         // Warp past cliff (7 days) into vesting
         vm.warp(uint256(tgeTime) + 8 days);
@@ -263,10 +265,10 @@ contract RefundReasonTest is Test {
         IIDOManager.RefundPolicy memory policy = _defaultPolicy();
         policy.isPartialRefundInVestingAllowed = false;
         uint256 idoId = _createIDOWithPolicy(policy);
-        _investUser(idoId);
-
-        uint64 tgeTime = uint64(block.timestamp + 11 days);
+        (uint64 idoStart,,,,,,,,,) = idoManager.idoSchedules(idoId);
+        uint64 tgeTime = idoStart + 11 days;
         _setTgeAndClaim(idoId, tgeTime);
+        _investUser(idoId);
 
         // Warp past cliff (7 days) into vesting
         vm.warp(uint256(tgeTime) + 8 days);
@@ -279,10 +281,10 @@ contract RefundReasonTest is Test {
 
     function test_reason_0_inVesting_refundAllowed() public {
         uint256 idoId = _createIDOWithPolicy(_defaultPolicy());
-        _investUser(idoId);
-
-        uint64 tgeTime = uint64(block.timestamp + 11 days);
+        (uint64 idoStart,,,,,,,,,) = idoManager.idoSchedules(idoId);
+        uint64 tgeTime = idoStart + 11 days;
         _setTgeAndClaim(idoId, tgeTime);
+        _investUser(idoId);
 
         // Warp past cliff into vesting
         vm.warp(uint256(tgeTime) + 8 days);
@@ -298,10 +300,10 @@ contract RefundReasonTest is Test {
 
     function test_reason_12_afterVestingTimeoutExpired() public {
         uint256 idoId = _createIDOWithPolicy(_defaultPolicy());
-        _investUser(idoId);
-
-        uint64 tgeTime = uint64(block.timestamp + 11 days);
+        (uint64 idoStart,,,,,,,,,) = idoManager.idoSchedules(idoId);
+        uint64 tgeTime = idoStart + 11 days;
         _setTgeAndClaim(idoId, tgeTime);
+        _investUser(idoId);
 
         // cliff(7d) + vesting(30d) + timeout(90d) + 1s
         vm.warp(uint256(tgeTime) + 127 days + 1);
@@ -314,10 +316,10 @@ contract RefundReasonTest is Test {
 
     function test_reason_0_atExactVestingTimeoutDeadline() public {
         uint256 idoId = _createIDOWithPolicy(_defaultPolicy());
-        _investUser(idoId);
-
-        uint64 tgeTime = uint64(block.timestamp + 11 days);
+        (uint64 idoStart,,,,,,,,,) = idoManager.idoSchedules(idoId);
+        uint64 tgeTime = idoStart + 11 days;
         _setTgeAndClaim(idoId, tgeTime);
+        _investUser(idoId);
 
         // At exact deadline, refund is still allowed (> deadline is blocked)
         vm.warp(uint256(tgeTime) + 127 days);
@@ -335,15 +337,15 @@ contract RefundReasonTest is Test {
         // Disable cliff/vesting full refund so only TWAP path allows it
         policy.isFullRefundInCliffAllowed = false;
         uint256 idoId = _createIDOWithPolicy(policy);
-        _investUser(idoId);
-
-        uint64 tgeTime = uint64(block.timestamp + 11 days);
+        (uint64 idoStart,,,,,,,,,) = idoManager.idoSchedules(idoId);
+        uint64 tgeTime = idoStart + 11 days;
         _setTgeAndClaim(idoId, tgeTime);
+        vm.prank(admin);
+        idoManager.setTwapPriceUsdt(idoId, 6e7); // below fullRefundPriceUsdt of 7e7
+        _investUser(idoId);
 
         // Warp past TWAP window (24h after TGE) but within full refund duration
         vm.warp(uint256(tgeTime) + 24 hours);
-        vm.prank(admin);
-        idoManager.setTwapPriceUsdt(idoId, 6e7); // below fullRefundPriceUsdt of 7e7
 
         uint8 reason = idoManager.getRefundNotAllowedReason(idoId, user, true);
         assertEq(reason, 0, "Should return 0 when TWAP no-penalty full refund is eligible");
@@ -355,10 +357,12 @@ contract RefundReasonTest is Test {
         IIDOManager.RefundPolicy memory policy = _defaultPolicy();
         policy.isFullRefundInCliffAllowed = false;
         uint256 idoId = _createIDOWithPolicy(policy);
-        _investUser(idoId);
-
-        uint64 tgeTime = uint64(block.timestamp + 11 days);
+        (uint64 idoStart,,,,,,,,,) = idoManager.idoSchedules(idoId);
+        uint64 tgeTime = idoStart + 11 days;
         _setTgeAndClaim(idoId, tgeTime);
+        vm.prank(admin);
+        idoManager.setTwapPriceUsdt(idoId, 6e7);
+        _investUser(idoId);
 
         // Claim during TWAP window to get disqualified
         vm.warp(uint256(tgeTime) + 1 hours);
@@ -367,8 +371,6 @@ contract RefundReasonTest is Test {
 
         // Warp past TWAP window
         vm.warp(uint256(tgeTime) + 24 hours);
-        vm.prank(admin);
-        idoManager.setTwapPriceUsdt(idoId, 6e7);
 
         // Still in cliff (7 days), full refund in cliff not allowed → code 7
         uint8 reason = idoManager.getRefundNotAllowedReason(idoId, user, true);
@@ -379,6 +381,9 @@ contract RefundReasonTest is Test {
 
     function test_reason_consistentWithIsRefundAvailable() public {
         uint256 idoId = _createIDOWithPolicy(_defaultPolicy());
+        (uint64 idoStart,,,,,,,,,) = idoManager.idoSchedules(idoId);
+        uint64 tgeTime = idoStart + 11 days;
+        _setTgeAndClaim(idoId, tgeTime);
         _investUser(idoId);
 
         // Before TGE - full refund
@@ -394,8 +399,6 @@ contract RefundReasonTest is Test {
         assertEq(reasonPartial == 0, availablePartial, "Reason 0 should match isRefundAvailable true (partial)");
 
         // After TGE, in cliff
-        uint64 tgeTime = uint64(block.timestamp + 11 days);
-        _setTgeAndClaim(idoId, tgeTime);
         vm.warp(uint256(tgeTime) + 1 days);
 
         reason = idoManager.getRefundNotAllowedReason(idoId, user, true);
