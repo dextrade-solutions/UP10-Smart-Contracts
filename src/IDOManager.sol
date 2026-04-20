@@ -492,6 +492,10 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         require(_idoInputSchedules.unlockInterval > 0, InvalidUnlockInterval());
         require(_idoInputSchedules.unlockInterval <= _idoInputSchedules.vestingDuration, UnlockIntervalTooLarge());
         require(_idoInputSchedules.tgeUnlockPercent <= HUNDRED_PERCENT, InvalidTGEUnlockPercent());
+
+        require(idoInput.bonuses.phase1BonusPercent <= HUNDRED_PERCENT, InvalidBonusPercent());
+        require(idoInput.bonuses.phase2BonusPercent <= HUNDRED_PERCENT, InvalidBonusPercent());
+        require(idoInput.bonuses.phase3BonusPercent <= HUNDRED_PERCENT, InvalidBonusPercent());
     }
 
     function _getTokensAvailableToClaim(

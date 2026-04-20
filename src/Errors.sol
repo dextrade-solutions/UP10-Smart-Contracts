@@ -102,6 +102,9 @@ error InvalidTGEUnlockPercent();
 /// @notice Thrown when investment amount is below minimum allocation
 error BelowMinAllocation();
 
+/// @notice Thrown when bonus percent is greater than 100%
+error InvalidBonusPercent();
+
 // ============================================
 // IDOManager Errors - State Validation
 // ============================================
