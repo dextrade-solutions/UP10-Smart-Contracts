@@ -347,7 +347,6 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         uint256 idoId,
         uint256 twapPriceUsdt
     ) external onlyAdmin {
-        _validateMutableIDOConfig(idoId);
         idoPricing[idoId].twapPriceUsdt = twapPriceUsdt;
         emit TwapSet(idoId, twapPriceUsdt);
     }
