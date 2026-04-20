@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import "../interfaces/IKYCVerifier.sol";
+import "../Errors.sol";
 
 abstract contract WithKYCVerifier {
     IKYCVerifier public kycVerifier;
@@ -11,6 +12,7 @@ abstract contract WithKYCVerifier {
     }
 
     function _setKYCVerifier(address _kycVerifier) internal {
+        if (_kycVerifier == address(0)) revert InvalidZeroAddress();
         kycVerifier = IKYCVerifier(_kycVerifier);
     }
 }

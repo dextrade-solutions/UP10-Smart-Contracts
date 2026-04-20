@@ -869,5 +869,22 @@ contract IDOManagerTest is Test {
         assertEq(newInvestorAllocated, 100e18, "new investor should be able to use refunded capacity");
         emit log_named_uint("capacity reused (tokens)", totalRefunded + refundedBonus);
     }
+
+    function test_setAdminManager_Reverts_ZeroAddress() public {
+        vm.expectRevert(InvalidZeroAddress.selector);
+        idoManager.setAdminManager(address(0));
+    }
+    function test_setKYCVerifier_Reverts_ZeroAddress() public {
+        vm.expectRevert(InvalidZeroAddress.selector);
+        idoManager.setKYCVerifier(address(0));
+    }
+    function test_adminManagerConstructor_RevertsZeroInitialAdmin() public {
+        vm.expectRevert(InvalidZeroAddress.selector);
+        new AdminManager(owner, address(0), owner);
+    }
+    function test_adminManagerConstructor_RevertsZeroInitialSuperAdmin() public {
+        vm.expectRevert(InvalidZeroAddress.selector);
+        new AdminManager(owner, admin, address(0));
+    }
 }
 

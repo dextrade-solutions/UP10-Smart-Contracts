@@ -22,6 +22,7 @@ abstract contract WithAdminManager {
     }
 
     function _setAdminManager(address _adminManager) internal {
+        if (_adminManager == address(0)) revert InvalidZeroAddress();
         adminManager = IAdminManager(_adminManager);
     }
 }

@@ -43,7 +43,6 @@ contract AdminManager is IAdminManager, Ownable {
 
     /// @inheritdoc IAdminManager
     function setSuperAdmin(address _newSuperAdmin) external onlyOwner {
-        if (_newSuperAdmin == address(0)) revert InvalidZeroAddress();
         address previous = superAdmin;
         _setSuperAdmin(_newSuperAdmin);
         emit SuperAdminChanged(previous, _newSuperAdmin);
@@ -52,10 +51,12 @@ contract AdminManager is IAdminManager, Ownable {
     // ---------------- Internal ----------------
 
     function _setAdmin(address _admin, bool _status) internal {
+        if (_admin == address(0)) revert InvalidZeroAddress();
         isAdmin[_admin] = _status;
     }
 
     function _setSuperAdmin(address _newSuperAdmin) internal {
+        if (_newSuperAdmin == address(0)) revert InvalidZeroAddress();
         superAdmin = _newSuperAdmin;
     }
 }
