@@ -77,7 +77,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
 
         idoRefundInfo[idoId] = IDORefundInfo({
             totalRefunded: 0,
-            refundedBonus: 0,
+            penaltySubtractedBonus: 0,
             totalRefundedUSDT: 0,
             refundPenalties: RefundPenalties({
                 fullRefundPenalty: _inputRefundPenalties.fullRefundPenalty,
@@ -195,7 +195,10 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         (uint256 tokensToClaim, uint256 bonusesToClaim) = _getTokensAvailableToClaim(schedules, user);
         uint256 userTokensAmountToClaim = tokensToClaim + bonusesToClaim;
         require(userTokensAmountToClaim > 0, NothingToClaim());
-        require(userTokensAmountToClaim + user.refundedTokens + user.refundedBonus + user.claimedTokens <= user.allocatedTokens, ClaimExceedsAllocated());
+        require(
+            userTokensAmountToClaim + user.refundedTokens + user.penaltySubtractedBonus + user.claimedTokens <= user.allocatedTokens,
+            ClaimExceedsAllocated()
+        );
 
         uint256 totalTokensInTokensDecimals = userTokensAmountToClaim.mulDiv(10 ** token.decimals(), DECIMALS);
         require(token.balanceOf(address(this)) >= totalTokensInTokensDecimals, InsufficientIDOContractBalance());
@@ -244,11 +247,12 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
             fullRefund
         );
 
+        uint256 penaltySubtractedBonusAmount = _calculatePenaltySubtractedBonusAmount(user);
         (uint256 investedTokensToRefundScaled, uint256 refundedUsdt, uint256 penaltyUsdt, uint256 investedTokensToRefund) = _updateRefundStateAndCalculateRefundAmount(
             idoId,
             tokensToRefund,
             percentToReturn,
-            _calculateBonusAmount(user),
+            penaltySubtractedBonusAmount,
             pricing.initialPriceUsdt
         );
 
@@ -257,7 +261,16 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         IERC20(user.investedToken).safeTransfer(msg.sender, investedTokensToRefundScaled);
         _markTwapNoPenaltyFullRefundDisqualifiedIfNeeded(idoId, msg.sender, schedules, refundInfo.refundPolicy);
 
-        emit Refund(idoId, msg.sender, tokensToRefund, investedTokensToRefund, refundedUsdt, penaltyUsdt, refundFlags);
+        emit Refund(
+            idoId,
+            msg.sender,
+            tokensToRefund,
+            investedTokensToRefund,
+            refundedUsdt,
+            penaltyUsdt,
+            penaltySubtractedBonusAmount,
+            refundFlags
+        );
     }
 
     /*
@@ -493,7 +506,9 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
 
         return (
             unlockedWithoutBonus > claimedTokensWOBonus + user.refundedTokens ? unlockedWithoutBonus - claimedTokensWOBonus - user.refundedTokens : 0,
-            unlockedBonus > user.claimedBonus + user.refundedBonus ? unlockedBonus - user.claimedBonus - user.refundedBonus : 0
+            unlockedBonus > user.claimedBonus + user.penaltySubtractedBonus
+                ? unlockedBonus - user.claimedBonus - user.penaltySubtractedBonus
+                : 0
         );
     }
 
@@ -631,8 +646,14 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         UserInfo memory user,
         IDORefundInfo memory refundInfo
     ) internal pure {
-        require(tokensBought + user.allocatedTokens - user.refundedTokens - user.refundedBonus <= ido.info.totalAllocationByUser, ExceedsUserAllocation());
-        require(tokensBought + ido.info.totalAllocated - refundInfo.totalRefunded - refundInfo.refundedBonus <= ido.info.totalAllocation, ExceedsTotalAllocation());
+        require(
+            tokensBought + user.allocatedTokens - user.refundedTokens - user.penaltySubtractedBonus <= ido.info.totalAllocationByUser,
+            ExceedsUserAllocation()
+        );
+        require(
+            tokensBought + ido.info.totalAllocated - refundInfo.totalRefunded - refundInfo.penaltySubtractedBonus <= ido.info.totalAllocation,
+            ExceedsTotalAllocation()
+        );
     }
 
     function _recordRefundPenalties(
@@ -649,8 +670,8 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         return penaltyUsdt;
     }
 
-    function _calculateBonusAmount(UserInfo memory user) internal pure returns (uint256) {
-        uint256 bonusToSub = user.allocatedBonus - user.refundedBonus - user.claimedBonus;
+    function _calculatePenaltySubtractedBonusAmount(UserInfo memory user) internal pure returns (uint256) {
+        uint256 bonusToSub = user.allocatedBonus - user.penaltySubtractedBonus - user.claimedBonus;
         return bonusToSub;
     }
 
@@ -664,11 +685,11 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         UserInfo storage userStorage = userInfo[idoId][msg.sender];
         UserInfo memory user = userInfo[idoId][msg.sender];
 
-        userStorage.refundedBonus += bonusToSub;
+        userStorage.penaltySubtractedBonus += bonusToSub;
         userStorage.refundedTokens += tokensToRefund;
 
         idoRefundInfo[idoId].totalRefunded += tokensToRefund;
-        idoRefundInfo[idoId].refundedBonus += bonusToSub;
+        idoRefundInfo[idoId].penaltySubtractedBonus += bonusToSub;
 
         uint256 fullRefundUsdt = _convertToUSDT(tokensToRefund, initialPriceUsdt);
         refundedUsdt = fullRefundUsdt.mulDiv(percentToReturn, HUNDRED_PERCENT);

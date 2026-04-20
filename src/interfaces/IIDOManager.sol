@@ -91,7 +91,7 @@ interface IIDOManager {
     /// @dev Aggregates total refunds and embeds refund policy configuration
     struct IDORefundInfo {
         uint256 totalRefunded;
-        uint256 refundedBonus;
+        uint256 penaltySubtractedBonus;
         uint256 totalRefundedUSDT;
         RefundPenalties refundPenalties;
         RefundPolicy refundPolicy;
@@ -112,7 +112,7 @@ interface IIDOManager {
         uint256 claimedTokens;
         uint256 claimedBonus;
         uint256 refundedTokens;
-        uint256 refundedBonus;
+        uint256 penaltySubtractedBonus;
         uint256 refundedUsdt;
         bool claimed;
         address investedToken;
@@ -144,8 +144,9 @@ interface IIDOManager {
         address indexed investor,
         uint256 tokensToRefund,
         uint256 refundedAmount,
-        uint256 refundedUsdt, 
+        uint256 refundedUsdt,
         uint256 penaltyUsdt,
+        uint256 penaltySubtractedBonusAmount,
         uint8 refundFlags
     );
     event TokensClaimed(

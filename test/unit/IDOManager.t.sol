@@ -582,14 +582,35 @@ contract IDOManagerTest is Test {
         assertEq(refundableWithPenalty, refundableExpected);
 
         uint256 expectedRefundUsdt = (refundableWithPenalty * refundPercent) / HUNDRED_PERCENT;
+        uint256 expectedPenaltyUsdt = refundableWithPenalty - expectedRefundUsdt;
         uint256 expectedStablecoinOut = expectedRefundUsdt / 1e12;
+        uint256 expectedPenaltySubtractedBonusAmount = allocatedBonus - claimedBonus;
+        uint8 expectedRefundFlags = 1 << 1; // full refund only
 
         uint256 usdtBefore = usdt.balanceOf(user);
+        vm.expectEmit(true, true, false, true, address(idoManager));
+        emit IIDOManager.Refund(
+            idoId,
+            user,
+            refundableWithPenalty,
+            expectedRefundUsdt,
+            expectedRefundUsdt,
+            expectedPenaltyUsdt,
+            expectedPenaltySubtractedBonusAmount,
+            expectedRefundFlags
+        );
         vm.prank(user);
         idoManager.processRefund(idoId, true);
         uint256 usdtAfter = usdt.balanceOf(user);
 
         assertEq(usdtAfter - usdtBefore, expectedStablecoinOut);
+
+        (,,,, uint256 userPenaltySubtractedBonus,,,,,,,,,) = idoManager.userInfo(idoId, user);
+        assertEq(userPenaltySubtractedBonus, expectedPenaltySubtractedBonusAmount);
+
+        (uint256 totalRefunded, uint256 idoPenaltySubtractedBonus,,,) = idoManager.idoRefundInfo(idoId);
+        assertEq(totalRefunded, refundableWithPenalty);
+        assertEq(idoPenaltySubtractedBonus, expectedPenaltySubtractedBonusAmount);
     }
 
     /// @notice C2: Partial refund during TWAP Full Refund Duration still carries penalty
