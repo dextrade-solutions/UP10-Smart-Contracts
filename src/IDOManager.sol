@@ -532,7 +532,8 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
             totalToRefund = (user.allocatedTokens - user.allocatedBonus).mulDiv(unlockedPercent, HUNDRED_PERCENT);
         }
 
-        uint tokensTaken = user.refundedTokens + user.claimedTokens;
+        uint256 claimedTokensWOBonus = user.claimedTokens - user.claimedBonus;
+        uint256 tokensTaken = user.refundedTokens + claimedTokensWOBonus;
         return (totalToRefund > tokensTaken ? totalToRefund - tokensTaken : 0);
     }
 
