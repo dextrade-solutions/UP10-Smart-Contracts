@@ -72,6 +72,9 @@ error CallerNotSuperAdmin();
 /// @notice Thrown when token is not USDT, USDC, or FLX
 error InvalidToken();
 
+/// @notice Thrown when token address is already set
+error TokenAddressAlreadySet();
+
 /// @notice Thrown when price is zero or invalid
 error InvalidPrice();
 

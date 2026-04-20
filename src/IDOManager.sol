@@ -333,6 +333,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         address _address
     ) external onlyAdmin {
         IDO storage ido = idos[idoId];
+        require(ido.info.tokenAddress == address(0), TokenAddressAlreadySet());
         ido.info.tokenAddress = _address;
         emit TokenAddressSet(idoId, _address);
     }
