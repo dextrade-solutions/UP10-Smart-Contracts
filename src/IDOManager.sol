@@ -802,7 +802,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
 
         uint256 vestingEndTime = schedules.tgeTime + schedules.cliffDuration + schedules.vestingDuration;
 
-        if (block.timestamp > vestingEndTime) {
+        if (block.timestamp >= vestingEndTime) {
             return HUNDRED_PERCENT;
         }
 
