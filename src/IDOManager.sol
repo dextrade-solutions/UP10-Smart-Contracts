@@ -245,7 +245,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         );
 
         uint256 penaltySubtractedBonusAmount = _calculatePenaltySubtractedBonusAmount(user);
-        (uint256 investedTokensToRefundScaled, uint256 refundedUsdt, uint256 penaltyUsdt, uint256 investedTokensToRefund) = _updateRefundStateAndCalculateRefundAmount(
+        (uint256 investedTokensToRefundTokenDecimals, uint256 refundedUsdt, uint256 penaltyUsdt, uint256 investedTokensToRefundInternalDecimals) = _updateRefundStateAndCalculateRefundAmount(
             idoId,
             tokensToRefund,
             percentToReturn,
@@ -255,14 +255,15 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
 
         uint8 refundFlags = _calcRefundFlags(schedules, pricing, fullRefund);
 
-        IERC20(user.investedToken).safeTransfer(msg.sender, investedTokensToRefundScaled);
+        IERC20(user.investedToken).safeTransfer(msg.sender, investedTokensToRefundTokenDecimals);
         _markTwapNoPenaltyFullRefundDisqualifiedIfNeeded(idoId, msg.sender, schedules, refundInfo.refundPolicy);
 
         emit Refund(
             idoId,
             msg.sender,
             tokensToRefund,
-            investedTokensToRefund,
+            investedTokensToRefundInternalDecimals,
+            investedTokensToRefundTokenDecimals,
             refundedUsdt,
             penaltyUsdt,
             penaltySubtractedBonusAmount,
@@ -714,7 +715,12 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         uint256 percentToReturn,
         uint256 bonusToSub,
         uint256 initialPriceUsdt
-    ) internal returns (uint256 investedTokensToRefundScaled, uint256 refundedUsdt, uint256 penaltyUsdt, uint256 investedTokensToRefund) {
+    ) internal returns (
+        uint256 investedTokensToRefundTokenDecimals,
+        uint256 refundedUsdt,
+        uint256 penaltyUsdt,
+        uint256 investedTokensToRefundInternalDecimals
+    ) {
         UserInfo storage userStorage = userInfo[idoId][msg.sender];
         UserInfo memory user = userInfo[idoId][msg.sender];
 
@@ -735,30 +741,30 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         uint256 baseRemainingBefore = baseAllocated - user.refundedTokens - baseClaimed;
         uint256 refundableInvestedBefore = user.investedTokenAmount.mulDiv(baseRemainingBefore, baseAllocated);
 
-        investedTokensToRefund = _convertFromUSDT(refundedUsdt, getStaticPrice(user.investedToken));
+        investedTokensToRefundInternalDecimals = _convertFromUSDT(refundedUsdt, getStaticPrice(user.investedToken));
         ERC20 token = ERC20(user.investedToken);
-        investedTokensToRefundScaled = investedTokensToRefund.mulDiv(10 ** token.decimals(), DECIMALS);
+        investedTokensToRefundTokenDecimals = investedTokensToRefundInternalDecimals.mulDiv(10 ** token.decimals(), DECIMALS);
 
         uint256 fullRefundInvestedTokensScaled;
         if (tokensToRefund == baseRemainingBefore) {
             fullRefundInvestedTokensScaled = refundableInvestedBefore;
         } else {
             fullRefundInvestedTokensScaled = refundableInvestedBefore.mulDiv(tokensToRefund, baseRemainingBefore);
-            if (fullRefundInvestedTokensScaled < investedTokensToRefundScaled) {
-                fullRefundInvestedTokensScaled = investedTokensToRefundScaled;
+            if (fullRefundInvestedTokensScaled < investedTokensToRefundTokenDecimals) {
+                fullRefundInvestedTokensScaled = investedTokensToRefundTokenDecimals;
             }
         }
 
-        require(user.investedTokenAmountRefunded + investedTokensToRefundScaled <= user.investedTokenAmount, RefundExceedsInvested());
+        require(user.investedTokenAmountRefunded + investedTokensToRefundTokenDecimals <= user.investedTokenAmount, RefundExceedsInvested());
 
-        userStorage.investedTokenAmountRefunded += investedTokensToRefundScaled;
+        userStorage.investedTokenAmountRefunded += investedTokensToRefundTokenDecimals;
 
         // Track stablecoin refunded for this IDO
-        totalRefundedInToken[idoId][user.investedToken] += investedTokensToRefundScaled;
+        totalRefundedInToken[idoId][user.investedToken] += investedTokensToRefundTokenDecimals;
 
         // Track penalty fees collected (difference between full refund and actual refund)
         if (percentToReturn < HUNDRED_PERCENT) {
-            uint256 penaltyScaled = fullRefundInvestedTokensScaled - investedTokensToRefundScaled;
+            uint256 penaltyScaled = fullRefundInvestedTokensScaled - investedTokensToRefundTokenDecimals;
             penaltyUsdt = fullRefundUsdt - refundedUsdt;
             _recordRefundPenalties(idoId, user.investedToken, penaltyScaled);
         } else {

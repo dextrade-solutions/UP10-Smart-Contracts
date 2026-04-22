@@ -589,6 +589,7 @@ contract IDOManagerTest is Test {
             user,
             refundableWithPenalty,
             expectedRefundUsdt,
+            expectedStablecoinOut,
             expectedRefundUsdt,
             expectedPenaltyUsdt,
             expectedPenaltySubtractedBonusAmount,
