@@ -537,7 +537,9 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         UserInfo memory user
     ) internal view returns (uint256, uint256) {
         uint256 unlockedPercent = _getUnlockedPercent(schedules);
-        require(unlockedPercent > 0, TokensLocked());
+        if (unlockedPercent == 0) {
+            return (0, 0);
+        }
 
         uint256 unlockedWithoutBonus = (user.allocatedTokens - user.allocatedBonus).mulDiv(unlockedPercent, HUNDRED_PERCENT);
         uint256 unlockedBonus = user.allocatedBonus.mulDiv(unlockedPercent, HUNDRED_PERCENT);

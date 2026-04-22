@@ -1350,6 +1350,13 @@ contract IDOManagerTest is Test {
         assertGt(usdtBalAfter - usdtBalBefore, 0);
     }
 
+    function test_getTokensAvailableToClaim_BeforeTGE_ReturnsZero() public {
+        (uint256 idoId,) = _setupTWAPScenario(0);
+
+        uint256 claimable = idoManager.getTokensAvailableToClaim(idoId, user);
+        assertEq(claimable, 0);
+    }
+
     function test_RefundedCapacityReusedForInvestment() public {
         address investor1 = makeAddr("investor1");
         address investor2 = makeAddr("investor2");
