@@ -700,16 +700,10 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
 
     function _recordRefundPenalties(
         uint256 idoId,
-        address investedToken,
-        uint256 fullRefundUsdt,
-        uint256 refundedUsdt,
-        uint256 fullRefundInvestedTokensScaled,
-        uint256 investedTokensToRefundScaled
-    ) internal returns (uint256) {
-        uint256 penaltyUsdt = fullRefundUsdt - refundedUsdt;
-        uint256 penaltyScaled = fullRefundInvestedTokensScaled - investedTokensToRefundScaled;
-        penaltyFeesCollected[idoId][investedToken] += penaltyScaled;
-        return penaltyUsdt;
+        address token,
+        uint256 penaltyScaled
+    ) internal {
+        penaltyFeesCollected[idoId][token] += penaltyScaled;
     }
 
     function _calculatePenaltySubtractedBonusAmount(UserInfo memory user) internal pure returns (uint256) {
@@ -754,14 +748,9 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
 
         // Track penalty fees collected (difference between full refund and actual refund)
         if (percentToReturn < HUNDRED_PERCENT) {
-            penaltyUsdt = _recordRefundPenalties(
-                idoId,
-                user.investedToken,
-                fullRefundUsdt,
-                refundedUsdt,
-                fullRefundInvestedTokensScaled,
-                investedTokensToRefundScaled
-            );
+            uint256 penaltyScaled = fullRefundInvestedTokensScaled - investedTokensToRefundScaled;
+            penaltyUsdt = fullRefundUsdt - refundedUsdt;
+            _recordRefundPenalties(idoId, user.investedToken, penaltyScaled);
         } else {
             penaltyUsdt = 0;
         }
