@@ -733,11 +733,24 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         idoRefundInfo[idoId].totalRefundedUSDT += refundedUsdt;
         userStorage.refundedUsdt += refundedUsdt;
 
+        uint256 baseAllocated = user.allocatedTokens - user.allocatedBonus;
+        uint256 baseClaimed = user.claimedTokens - user.claimedBonus;
+        uint256 baseRemainingBefore = baseAllocated - user.refundedTokens - baseClaimed;
+        uint256 refundableInvestedBefore = user.investedTokenAmount.mulDiv(baseRemainingBefore, baseAllocated);
+
         investedTokensToRefund = _convertFromUSDT(refundedUsdt, getStaticPrice(user.investedToken));
         ERC20 token = ERC20(user.investedToken);
         investedTokensToRefundScaled = investedTokensToRefund.mulDiv(10 ** token.decimals(), DECIMALS);
-        uint256 fullRefundInvestedTokens = _convertFromUSDT(fullRefundUsdt, getStaticPrice(user.investedToken));
-        uint256 fullRefundInvestedTokensScaled = fullRefundInvestedTokens.mulDiv(10 ** token.decimals(), DECIMALS);
+
+        uint256 fullRefundInvestedTokensScaled;
+        if (tokensToRefund == baseRemainingBefore) {
+            fullRefundInvestedTokensScaled = refundableInvestedBefore;
+        } else {
+            fullRefundInvestedTokensScaled = refundableInvestedBefore.mulDiv(tokensToRefund, baseRemainingBefore);
+            if (fullRefundInvestedTokensScaled < investedTokensToRefundScaled) {
+                fullRefundInvestedTokensScaled = investedTokensToRefundScaled;
+            }
+        }
 
         require(user.investedTokenAmountRefunded + investedTokensToRefundScaled <= user.investedTokenAmount, RefundExceedsInvested());
 

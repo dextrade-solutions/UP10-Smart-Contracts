@@ -608,6 +608,142 @@ contract IDOManagerTest is Test {
         assertEq(idoPenaltySubtractedBonus, expectedPenaltySubtractedBonusAmount);
     }
 
+    function test_refund_BonusMultiRefunds_ConservationAndPenaltyBalanceMatch() public {
+        uint64 startTime = uint64(block.timestamp + 1 days);
+        uint256 idoId = _createTWAPRefundIDOWithBonus(startTime, uint64(startTime + 10 days), 2_000_000); // 20%
+
+        uint64 tgeTime = uint64(startTime + 2 days);
+        vm.startPrank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+        idoToken.mint(address(idoManager), 1_000_000e18);
+
+        uint256 investAmount = 1_000e6;
+        _mintAndApprove(user, address(usdt), investAmount);
+        vm.warp(startTime);
+        vm.prank(user);
+        idoManager.invest(idoId, investAmount, address(usdt), KYC_EXPIRES, KYC_SIG);
+
+        uint256 userReceivedFromRefunds;
+
+        vm.warp(uint256(tgeTime) + 7 days);
+        uint256 availableRefund = idoManager.getTokensAvailableToRefund(idoId, user, false);
+        if (availableRefund > 0) {
+            uint256 userBefore = usdt.balanceOf(user);
+            vm.prank(user);
+            idoManager.processRefund(idoId, false);
+            userReceivedFromRefunds += usdt.balanceOf(user) - userBefore;
+        }
+
+        vm.warp(uint256(tgeTime) + 18 days);
+        availableRefund = idoManager.getTokensAvailableToRefund(idoId, user, false);
+        if (availableRefund > 0) {
+            uint256 userBefore = usdt.balanceOf(user);
+            vm.prank(user);
+            idoManager.processRefund(idoId, false);
+            userReceivedFromRefunds += usdt.balanceOf(user) - userBefore;
+        }
+
+        vm.warp(uint256(tgeTime) + 29 days);
+        availableRefund = idoManager.getTokensAvailableToRefund(idoId, user, true);
+        if (availableRefund > 0) {
+            uint256 userBefore = usdt.balanceOf(user);
+            vm.prank(user);
+            idoManager.processRefund(idoId, true);
+            userReceivedFromRefunds += usdt.balanceOf(user) - userBefore;
+        }
+
+        uint256 contractBalance = usdt.balanceOf(address(idoManager));
+        uint256 penaltyCollected = idoManager.penaltyFeesCollected(idoId, address(usdt));
+
+        // Invested principal is partitioned into refunded-to-user + remaining-in-contract.
+        assertEq(userReceivedFromRefunds + contractBalance, investAmount);
+        // After full refund completion without claims, contract stablecoin balance is exactly penalty pool.
+        assertEq(contractBalance, penaltyCollected);
+    }
+
+    function test_refund_BonusMultiClaimsAndRefunds_ConservationWithPenaltyAndClaimedPrincipal() public {
+        uint64 startTime = uint64(block.timestamp + 1 days);
+        uint256 idoId = _createTWAPRefundIDOWithBonus(startTime, uint64(startTime + 10 days), 1_500_000); // 15%
+
+        uint64 tgeTime = uint64(startTime + 2 days);
+        vm.startPrank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+        idoToken.mint(address(idoManager), 1_000_000e18);
+
+        uint256 investAmount = 1_000e6;
+        _mintAndApprove(user, address(usdt), investAmount);
+        vm.warp(startTime);
+        vm.prank(user);
+        idoManager.invest(idoId, investAmount, address(usdt), KYC_EXPIRES, KYC_SIG);
+
+        uint256 userReceivedFromRefunds;
+
+        vm.warp(uint256(tgeTime) + 6 days);
+        vm.prank(user);
+        idoManager.claimTokens(idoId);
+
+        uint256 availableRefund = idoManager.getTokensAvailableToRefund(idoId, user, false);
+        if (availableRefund > 0) {
+            uint256 userBefore = usdt.balanceOf(user);
+            vm.prank(user);
+            idoManager.processRefund(idoId, false);
+            userReceivedFromRefunds += usdt.balanceOf(user) - userBefore;
+        }
+
+        vm.warp(uint256(tgeTime) + 17 days);
+        vm.prank(user);
+        idoManager.claimTokens(idoId);
+
+        availableRefund = idoManager.getTokensAvailableToRefund(idoId, user, false);
+        if (availableRefund > 0) {
+            uint256 userBefore = usdt.balanceOf(user);
+            vm.prank(user);
+            idoManager.processRefund(idoId, false);
+            userReceivedFromRefunds += usdt.balanceOf(user) - userBefore;
+        }
+
+        vm.warp(uint256(tgeTime) + 29 days);
+        availableRefund = idoManager.getTokensAvailableToRefund(idoId, user, true);
+        if (availableRefund > 0) {
+            uint256 userBefore = usdt.balanceOf(user);
+            vm.prank(user);
+            idoManager.processRefund(idoId, true);
+            userReceivedFromRefunds += usdt.balanceOf(user) - userBefore;
+        }
+
+        (
+            ,
+            uint256 claimedTokens,
+            uint256 claimedBonus,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+
+        ) = idoManager.userInfo(idoId, user);
+
+        uint256 claimedBaseScaled = (claimedTokens - claimedBonus) / 1e12; // token 18 -> USDT 6 decimals at price $1
+        uint256 contractBalance = usdt.balanceOf(address(idoManager));
+        uint256 penaltyCollected = idoManager.penaltyFeesCollected(idoId, address(usdt));
+
+        assertEq(userReceivedFromRefunds + contractBalance, investAmount);
+        // With claims present, remaining contract balance equals claimed principal + collected penalties (with tiny rounding dust tolerance).
+        assertLe(contractBalance, claimedBaseScaled + penaltyCollected);
+        assertGe(contractBalance + 2, claimedBaseScaled + penaltyCollected);
+    }
+
     /// @notice C2: Partial refund during TWAP Full Refund Duration still carries penalty
     function test_refund_C2_PartialRefundDuringFullRefundDuration_HasPenalty() public {
         (uint256 idoId, uint64 tgeTime) = _setupTWAPScenario(6e7);
@@ -714,6 +850,373 @@ contract IDOManagerTest is Test {
         assertEq(actualRefundScaled, expectedRefundScaled);
         assertEq(recordedPenalty, expectedPenaltyScaled);
         assertEq(actualRefundScaled + recordedPenalty, investedTokenAmount);
+    }
+
+    function test_refund_FullPenalty_CapturesFullInvestedTokenAmount() public {
+        uint64 startTime = uint64(block.timestamp + 1 days);
+        uint64 endTime = uint64(startTime + 10 days);
+        uint256 initialPriceUsdt = 100000001;
+
+        IIDOManager.IDOInput memory idoInput = IIDOManager.IDOInput({
+            info: IIDOManager.IDOInfo({
+                tokenAddress: address(0),
+                projectId: 778,
+                totalAllocated: 0,
+                minAllocationUSD: 1e18,
+                totalAllocationByUser: type(uint256).max,
+                totalAllocation: type(uint256).max
+            }),
+            bonuses: IIDOManager.IDOBonuses({
+                phase1BonusPercent: 0,
+                phase2BonusPercent: 0,
+                phase3BonusPercent: 0
+            }),
+            schedules: IIDOManager.IDOSchedules({
+                idoStartTime: startTime,
+                idoEndTime: endTime,
+                claimStartTime: 0,
+                tgeTime: 0,
+                cliffDuration: 0,
+                vestingDuration: 1 days,
+                unlockInterval: 1 days,
+                twapCalculationWindowHours: 24,
+                timeoutForRefundAfterVesting: 90 days,
+                tgeUnlockPercent: 1_000_000
+            }),
+            refundPenalties: IIDOManager.RefundPenalties({
+                fullRefundPenalty: uint64(HUNDRED_PERCENT),
+                fullRefundPenaltyBeforeTge: uint64(HUNDRED_PERCENT),
+                refundPenalty: 1_000_000
+            }),
+            refundPolicy: IIDOManager.RefundPolicy({
+                fullRefundDuration: 7 days,
+                isRefundIfClaimedAllowed: true,
+                isRefundUnlockedPartOnly: false,
+                isRefundInCliffAllowed: true,
+                isFullRefundBeforeTGEAllowed: true,
+                isPartialRefundInCliffAllowed: true,
+                isFullRefundInCliffAllowed: true,
+                isPartialRefundInVestingAllowed: true,
+                isFullRefundInVestingAllowed: true
+            }),
+            initialPriceUsdt: initialPriceUsdt,
+            fullRefundPriceUsdt: 5e7
+        });
+
+        vm.prank(admin);
+        uint256 idoId = idoManager.createIDO(idoInput);
+
+        uint256 investAmount = 100_000_001;
+        _mintAndApprove(user, address(usdt), investAmount);
+
+        vm.warp(startTime);
+        vm.prank(user);
+        idoManager.invest(idoId, investAmount, address(usdt), KYC_EXPIRES, KYC_SIG);
+
+        (, uint256 refundPercent) = idoManager.getTokensAvailableToRefundWithPenalty(idoId, user, true);
+        assertEq(refundPercent, 0);
+
+        (,,,,,,,, uint256 investedTokenAmount,,,,,) = idoManager.userInfo(idoId, user);
+        uint256 userBalanceBefore = usdt.balanceOf(user);
+
+        vm.prank(user);
+        idoManager.processRefund(idoId, true);
+        uint256 userBalanceAfter = usdt.balanceOf(user);
+
+        uint256 refundedScaled = userBalanceAfter - userBalanceBefore;
+        uint256 recordedPenalty = idoManager.penaltyFeesCollected(idoId, address(usdt));
+
+        assertEq(refundedScaled, 0);
+        assertEq(recordedPenalty, investedTokenAmount);
+    }
+
+    function test_refund_FinalSliceFullPenalty_ConsumesExactInvestedRemainder() public {
+        uint64 startTime = uint64(block.timestamp + 1 days);
+        uint64 endTime = uint64(startTime + 10 days);
+        IIDOManager.IDOInput memory idoInput = IIDOManager.IDOInput({
+            info: IIDOManager.IDOInfo({
+                tokenAddress: address(0),
+                projectId: 779,
+                totalAllocated: 0,
+                minAllocationUSD: 1e18,
+                totalAllocationByUser: type(uint256).max,
+                totalAllocation: type(uint256).max
+            }),
+            bonuses: IIDOManager.IDOBonuses({
+                phase1BonusPercent: 0,
+                phase2BonusPercent: 0,
+                phase3BonusPercent: 0
+            }),
+            schedules: IIDOManager.IDOSchedules({
+                idoStartTime: startTime,
+                idoEndTime: endTime,
+                claimStartTime: 0,
+                tgeTime: 0,
+                cliffDuration: 0,
+                vestingDuration: 30 days,
+                unlockInterval: 1 days,
+                twapCalculationWindowHours: 24,
+                timeoutForRefundAfterVesting: 90 days,
+                tgeUnlockPercent: 3_000_000
+            }),
+            refundPenalties: IIDOManager.RefundPenalties({
+                fullRefundPenalty: uint64(HUNDRED_PERCENT),
+                fullRefundPenaltyBeforeTge: uint64(HUNDRED_PERCENT),
+                refundPenalty: 1_000_000
+            }),
+            refundPolicy: IIDOManager.RefundPolicy({
+                fullRefundDuration: 7 days,
+                isRefundIfClaimedAllowed: true,
+                isRefundUnlockedPartOnly: false,
+                isRefundInCliffAllowed: true,
+                isFullRefundBeforeTGEAllowed: true,
+                isPartialRefundInCliffAllowed: true,
+                isFullRefundInCliffAllowed: true,
+                isPartialRefundInVestingAllowed: true,
+                isFullRefundInVestingAllowed: true
+            }),
+            initialPriceUsdt: 1e8,
+            fullRefundPriceUsdt: 7e7
+        });
+
+        vm.prank(admin);
+        uint256 idoId = idoManager.createIDO(idoInput);
+        uint64 tgeTime = uint64(startTime + 2 days);
+        vm.startPrank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+
+        (,,,,,,,, uint256 investedTokenAmount, uint256 investedTokenAmountRefunded,,,,) = idoManager.userInfo(idoId, user);
+        assertEq(investedTokenAmount, 0);
+        assertEq(investedTokenAmountRefunded, 0);
+
+        _mintAndApprove(user, address(usdt), 100_000_001);
+        vm.warp(startTime);
+        vm.prank(user);
+        idoManager.invest(idoId, 100_000_001, address(usdt), KYC_EXPIRES, KYC_SIG);
+
+        // Make partial refund possible (TGE started, vesting unlocked > 30%)
+        vm.warp(uint256(tgeTime) + 1 days);
+        vm.prank(user);
+        idoManager.processRefund(idoId, false);
+
+        (
+            ,
+            uint256 claimedTokensBeforeFinal,
+            uint256 claimedBonusBeforeFinal,
+            uint256 refundedTokensBeforeFinal,
+            ,
+            ,
+            ,
+            ,
+            uint256 investedTokenAmountAfterInvest,
+            ,
+            ,
+            uint256 allocatedTokensBeforeFinal,
+            uint256 allocatedBonusBeforeFinal,
+
+        ) = idoManager.userInfo(idoId, user);
+        uint256 baseAllocatedBeforeFinal = allocatedTokensBeforeFinal - allocatedBonusBeforeFinal;
+        uint256 baseClaimedBeforeFinal = claimedTokensBeforeFinal - claimedBonusBeforeFinal;
+        uint256 baseRemainingBeforeFinal = baseAllocatedBeforeFinal - refundedTokensBeforeFinal - baseClaimedBeforeFinal;
+        uint256 expectedFinalPenaltyDelta = investedTokenAmountAfterInvest * baseRemainingBeforeFinal / baseAllocatedBeforeFinal;
+
+        uint256 penaltyBefore = idoManager.penaltyFeesCollected(idoId, address(usdt));
+        uint256 userBalanceBefore = usdt.balanceOf(user);
+        vm.prank(user);
+        idoManager.processRefund(idoId, true);
+        uint256 userBalanceAfter = usdt.balanceOf(user);
+        uint256 penaltyAfter = idoManager.penaltyFeesCollected(idoId, address(usdt));
+
+        assertEq(userBalanceAfter - userBalanceBefore, 0);
+        assertEq(penaltyAfter - penaltyBefore, expectedFinalPenaltyDelta);
+    }
+
+    function test_refund_MultiClaimsAndRefunds_FullPenalty_DoesNotPenalizeClaimedPrincipal() public {
+        uint64 startTime = uint64(block.timestamp + 1 days);
+        uint64 endTime = uint64(startTime + 10 days);
+        IIDOManager.IDOInput memory idoInput = IIDOManager.IDOInput({
+            info: IIDOManager.IDOInfo({
+                tokenAddress: address(0),
+                projectId: 780,
+                totalAllocated: 0,
+                minAllocationUSD: 1e18,
+                totalAllocationByUser: type(uint256).max,
+                totalAllocation: type(uint256).max
+            }),
+            bonuses: IIDOManager.IDOBonuses({
+                phase1BonusPercent: 0,
+                phase2BonusPercent: 0,
+                phase3BonusPercent: 0
+            }),
+            schedules: IIDOManager.IDOSchedules({
+                idoStartTime: startTime,
+                idoEndTime: endTime,
+                claimStartTime: 0,
+                tgeTime: 0,
+                cliffDuration: 0,
+                vestingDuration: 30 days,
+                unlockInterval: 1 days,
+                twapCalculationWindowHours: 24,
+                timeoutForRefundAfterVesting: 90 days,
+                tgeUnlockPercent: 3_000_000
+            }),
+            refundPenalties: IIDOManager.RefundPenalties({
+                fullRefundPenalty: uint64(HUNDRED_PERCENT),
+                fullRefundPenaltyBeforeTge: uint64(HUNDRED_PERCENT),
+                refundPenalty: uint64(HUNDRED_PERCENT)
+            }),
+            refundPolicy: IIDOManager.RefundPolicy({
+                fullRefundDuration: 7 days,
+                isRefundIfClaimedAllowed: true,
+                isRefundUnlockedPartOnly: false,
+                isRefundInCliffAllowed: true,
+                isFullRefundBeforeTGEAllowed: true,
+                isPartialRefundInCliffAllowed: true,
+                isFullRefundInCliffAllowed: true,
+                isPartialRefundInVestingAllowed: true,
+                isFullRefundInVestingAllowed: true
+            }),
+            initialPriceUsdt: 1e8,
+            fullRefundPriceUsdt: 7e7
+        });
+
+        vm.prank(admin);
+        uint256 idoId = idoManager.createIDO(idoInput);
+        uint64 tgeTime = uint64(startTime + 2 days);
+        vm.startPrank(admin);
+        idoManager.setTokenAddress(idoId, address(idoToken));
+        idoManager.setTgeTime(idoId, tgeTime);
+        idoManager.setClaimStartTime(idoId, tgeTime);
+        vm.stopPrank();
+        idoToken.mint(address(idoManager), 1_000_000e18);
+
+        uint256 investAmount = 100_000_000; // 100 USDT
+        _mintAndApprove(user, address(usdt), investAmount);
+        vm.warp(startTime);
+        vm.prank(user);
+        idoManager.invest(idoId, investAmount, address(usdt), KYC_EXPIRES, KYC_SIG);
+
+        // claim #1
+        vm.warp(uint256(tgeTime) + 10 days);
+        vm.prank(user);
+        idoManager.claimTokens(idoId);
+
+        // partial refund #1
+        uint256 availableRefund = idoManager.getTokensAvailableToRefund(idoId, user, false);
+        if (availableRefund > 0) {
+            vm.prank(user);
+            idoManager.processRefund(idoId, false);
+        }
+
+        // claim #2
+        vm.warp(uint256(tgeTime) + 20 days);
+        vm.prank(user);
+        idoManager.claimTokens(idoId);
+
+        // partial refund #2
+        availableRefund = idoManager.getTokensAvailableToRefund(idoId, user, false);
+        if (availableRefund > 0) {
+            vm.prank(user);
+            idoManager.processRefund(idoId, false);
+        }
+
+        // final full refund of all remaining refundable base
+        vm.warp(uint256(tgeTime) + 29 days);
+        availableRefund = idoManager.getTokensAvailableToRefund(idoId, user, true);
+        if (availableRefund > 0) {
+            vm.prank(user);
+            idoManager.processRefund(idoId, true);
+        }
+
+        (
+            ,
+            uint256 claimedTokens,
+            uint256 claimedBonus,
+            ,
+            ,
+            ,
+            ,
+            ,
+            uint256 investedTokenAmount,
+            uint256 investedTokenAmountRefunded,
+            ,
+            ,
+            ,
+
+        ) = idoManager.userInfo(idoId, user);
+
+        uint256 claimedBaseScaled = (claimedTokens - claimedBonus) / 1e12; // 18 -> 6 decimals at $1 price
+        uint256 penaltyCollected = idoManager.penaltyFeesCollected(idoId, address(usdt));
+
+        // With 100% penalties, user never receives stablecoin refund.
+        assertEq(investedTokenAmountRefunded, 0);
+
+        // Claimed principal is not refundable and should not be penalized.
+        uint256 expectedMaxPenalty = investedTokenAmount - claimedBaseScaled;
+        assertLe(penaltyCollected, expectedMaxPenalty);
+        assertGe(penaltyCollected + 2, expectedMaxPenalty);
+    }
+
+    function test_refund_MultiClaimsAndRefunds_ConservationBoundsUnderMixedPenalties() public {
+        (uint256 idoId, uint64 tgeTime) = _setupTWAPScenario(0);
+
+        // claim #1
+        vm.warp(uint256(tgeTime) + 2 days);
+        vm.prank(user);
+        idoManager.claimTokens(idoId);
+
+        // partial refund #1 (10% penalty)
+        vm.warp(uint256(tgeTime) + 8 days);
+        uint256 availableRefund = idoManager.getTokensAvailableToRefund(idoId, user, false);
+        assertGt(availableRefund, 0);
+        vm.prank(user);
+        idoManager.processRefund(idoId, false);
+
+        // claim #2
+        vm.warp(uint256(tgeTime) + 12 days);
+        vm.prank(user);
+        idoManager.claimTokens(idoId);
+
+        // partial refund #2 (10% penalty)
+        vm.warp(uint256(tgeTime) + 20 days);
+        availableRefund = idoManager.getTokensAvailableToRefund(idoId, user, false);
+        assertGt(availableRefund, 0);
+        vm.prank(user);
+        idoManager.processRefund(idoId, false);
+
+        // final full refund (5% penalty with twapPrice=0 path)
+        vm.warp(uint256(tgeTime) + 25 days);
+        availableRefund = idoManager.getTokensAvailableToRefund(idoId, user, true);
+        assertGt(availableRefund, 0);
+        vm.prank(user);
+        idoManager.processRefund(idoId, true);
+
+        (
+            ,
+            uint256 claimedTokens,
+            uint256 claimedBonus,
+            ,
+            ,
+            ,
+            ,
+            ,
+            uint256 investedTokenAmount,
+            uint256 investedTokenAmountRefunded,
+            ,
+            ,
+            ,
+
+        ) = idoManager.userInfo(idoId, user);
+
+        uint256 penaltyCollected = idoManager.penaltyFeesCollected(idoId, address(usdt));
+        uint256 claimedBaseScaled = (claimedTokens - claimedBonus) / 1e12; // 18 -> 6 decimals at $1 price
+        assertGt(claimedBaseScaled, 0);
+
+        // Returned + penalized token amount must never exceed total invested principal.
+        assertLe(investedTokenAmountRefunded + penaltyCollected, investedTokenAmount);
     }
 
     /// @notice C2: After TWAP Full Refund Duration expires, full refund reverts to penalty
