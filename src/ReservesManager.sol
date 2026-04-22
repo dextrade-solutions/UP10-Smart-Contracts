@@ -24,7 +24,7 @@ abstract contract ReservesManager is IReservesManager, EmergencyWithdrawAdmin {
     mapping(address => bool) public enabledTokens;
     address[] public SUPPORTED_TOKENS;
 
-    uint32 internal constant HUNDRED_PERCENT = 10_000_000;
+    uint64 internal constant HUNDRED_PERCENT = 10_000_000;
 
     constructor(TokenConfig[] memory tokens) {
         uint256 len = tokens.length;
