@@ -84,7 +84,7 @@ error InvalidPrice();
 /// @notice Thrown when IDO start time >= end time
 error InvalidIDOTimeRange();
 
-/// @notice Thrown when user allocation is zero
+/// @notice Thrown when user allocation is zero or greater than total allocation
 error InvalidUserAllocation();
 
 /// @notice Thrown when total allocation is zero

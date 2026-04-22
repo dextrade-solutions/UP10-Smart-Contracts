@@ -519,6 +519,8 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         require(idoInput.refundPenalties.fullRefundPenalty <= HUNDRED_PERCENT, InvalidPenalty());
         require(idoInput.refundPenalties.fullRefundPenaltyBeforeTge <= HUNDRED_PERCENT, InvalidPenalty());
         require(idoInput.refundPenalties.refundPenalty <= HUNDRED_PERCENT, InvalidPenalty());
+
+        require(_idoInputInfo.totalAllocationByUser <= _idoInputInfo.totalAllocation, InvalidUserAllocation());
     }
 
     function _validateMutableIDOConfig(uint256 idoId) internal view {
