@@ -34,11 +34,8 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
     mapping(uint256 => mapping(address => bool)) public twapNoPenaltyFullRefundDisqualified;
 
     uint256 private constant DECIMALS = 1e18;
-    uint32 private constant HUNDRED_PERCENT = 10_000_000;
     uint256 private constant PRICE_DECIMALS = 1e8;
 
-    uint8 private constant PHASE_DIVIDER = 3;
-    uint16 private constant FLX_PRIORITY_PERIOD = 2 hours;
 
     /// @notice KYC threshold in USD (18 decimals). Investments >= this amount require KYC verification
     uint256 public kycThresholdUSD;
@@ -978,29 +975,5 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
 
     function _isTwapNoPenaltyFullRefundDisqualified(uint256 idoId, address userAddr) internal view returns (bool) {
         return twapNoPenaltyFullRefundDisqualified[idoId][userAddr];
-    }
-
-    function _isRefundBeforeTGEAllowed(bool fullRefund, IDORefundInfo memory refundInfo) internal pure returns (bool) {
-        if (fullRefund) {
-            return refundInfo.refundPolicy.isFullRefundBeforeTGEAllowed;
-        } else {
-            return false;
-        }
-    }
-
-    function _isCliffRefundAllowed(bool fullRefund, IDORefundInfo memory refundInfo) internal pure returns (bool) {
-        if (fullRefund) {
-            return refundInfo.refundPolicy.isFullRefundInCliffAllowed;
-        } else {
-            return refundInfo.refundPolicy.isPartialRefundInCliffAllowed;
-        }
-    }
-
-    function _isRefundInVestingAllowed(bool fullRefund, IDORefundInfo memory refundInfo) internal pure returns (bool) {
-        if (fullRefund) {
-            return refundInfo.refundPolicy.isFullRefundInVestingAllowed;
-        } else {
-            return refundInfo.refundPolicy.isPartialRefundInVestingAllowed;
-        }
     }
 }
