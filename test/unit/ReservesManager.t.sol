@@ -33,6 +33,8 @@ contract ReservesManagerHarness is ReservesManager {
 }
 
 contract ReservesManagerTest is Test {
+    event EmergencyWithdraw(address indexed token, address indexed recipient, uint256 amount);
+
     AdminManager internal adminManager;
     ReservesManagerHarness internal reserves;
 
@@ -124,6 +126,8 @@ contract ReservesManagerTest is Test {
         uint256 ownerBefore = usdt.balanceOf(superAdmin);
         uint256 reservesBefore = usdt.balanceOf(address(reserves));
 
+        vm.expectEmit(true, true, false, true, address(reserves));
+        emit EmergencyWithdraw(address(usdt), superAdmin, amount);
         vm.prank(superAdmin);
         reserves.emergencyWithdraw(address(usdt), amount);
 
@@ -138,6 +142,8 @@ contract ReservesManagerTest is Test {
         uint256 reservesBefore = address(reserves).balance;
 
         uint256 amount = 0.4 ether;
+        vm.expectEmit(true, true, false, true, address(reserves));
+        emit EmergencyWithdraw(address(0), superAdmin, amount);
         vm.prank(superAdmin);
         reserves.emergencyWithdraw(address(0), amount);
 

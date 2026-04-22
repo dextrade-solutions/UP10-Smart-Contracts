@@ -8,6 +8,8 @@ import "./admin_manager/WithAdminManager.sol";
 abstract contract EmergencyWithdrawAdmin is WithAdminManager {
     using SafeERC20 for IERC20;
 
+    event EmergencyWithdraw(address indexed token, address indexed recipient, uint256 amount);
+
     modifier onlyEmergencyWithdrawAdmin() {
         if (!adminManager.isSuperAdminAddress(msg.sender)) revert CallerNotSuperAdmin();
         _;
@@ -22,5 +24,7 @@ abstract contract EmergencyWithdrawAdmin is WithAdminManager {
             (bool success, ) = payable(msg.sender).call{value: _amount}("");
             if (!success) revert ETHTransferFailed();
         }
+
+        emit EmergencyWithdraw(_token, msg.sender, _amount);
     }
 }
