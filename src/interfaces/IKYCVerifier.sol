@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity 0.8.30;
 
 interface IKYCVerifier {
     event KYCVerified(address indexed user, uint256 expires);

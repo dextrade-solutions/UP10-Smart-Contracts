@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity 0.8.30;
 
 interface IIDOManager {
     /// @notice Represents the three phases of an IDO based on allocation progress
