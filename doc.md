@@ -78,7 +78,7 @@ Each phase can have a unique bonus percentage (e.g., Phase 1 may offer higher bo
 
 Uses EIP-712 typed data signatures to verify off-chain KYC status.
 - **Domain**: `KYCVerifier`, Version `1.0`.
-- **Signer**: A trusted `kycSigner` address set by the Super Admin.
+- **Signer**: A trusted `kycSigner` address set by the Owner of the KYCVerifier contract.
 - **Anti-Replay**: Each user has a nonce that increments upon successful verification.
 
 ---
