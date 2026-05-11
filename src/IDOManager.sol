@@ -302,7 +302,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         uint64 _claimStartTime
     ) external onlyAdmin {
         _validateIdoId(idoId);
-        _validateMutableIDOConfig(idoId);
+        if (idoSchedules[idoId].claimStartTime != 0) revert ClaimStartTimeAlreadySet();
         uint64 tgeTime = idoSchedules[idoId].tgeTime;
         if (tgeTime > 0 && _claimStartTime < tgeTime) revert InvalidIDOTimeRange();
         idoSchedules[idoId].claimStartTime = _claimStartTime;
@@ -315,7 +315,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         uint64 _tgeTime
     ) external onlyAdmin {
         _validateIdoId(idoId);
-        _validateMutableIDOConfig(idoId);
+        if (idoSchedules[idoId].tgeTime != 0) revert TgeTimeAlreadySet();
         uint64 claimStartTime = idoSchedules[idoId].claimStartTime;
         if (claimStartTime > 0 && claimStartTime < _tgeTime) revert InvalidIDOTimeRange();
         idoSchedules[idoId].tgeTime = _tgeTime;
@@ -342,7 +342,6 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
         address _address
     ) external onlyAdmin {
         _validateIdoId(idoId);
-        _validateMutableIDOConfig(idoId);
         if (_address == address(0)) revert InvalidZeroAddress();
         IDO storage ido = idos[idoId];
         require(ido.info.tokenAddress == address(0), TokenAddressAlreadySet());

@@ -84,6 +84,12 @@ error InvalidPrice();
 /// @notice Thrown when IDO start time >= end time
 error InvalidIDOTimeRange();
 
+/// @notice Thrown when TGE time is already set
+error TgeTimeAlreadySet();
+
+/// @notice Thrown when claim start time is already set
+error ClaimStartTimeAlreadySet();
+
 /// @notice Thrown when user allocation is zero or greater than total allocation
 error InvalidUserAllocation();
 
