@@ -680,6 +680,7 @@ contract IDOManager is IIDOManager, ReentrancyGuard, WithKYCVerifier, ReservesMa
     ) internal view {
         require(ido.info.totalAllocated - refundInfo.totalRefunded - refundInfo.penaltySubtractedBonus < ido.info.totalAllocation, IDOEnded());
         require(block.timestamp >= schedules.idoStartTime, IDONotStarted());
+        require(block.timestamp <= schedules.idoEndTime, IDOEnded());
         require(pricing.initialPriceUsdt > 0, InvalidPrice());
         require(user.investedToken == address(0), AlreadyInvested());
     }
